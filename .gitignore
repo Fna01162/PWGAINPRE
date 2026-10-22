@@ -1,0 +1,15 @@
+# 数据与模型权重（体积过大，GitHub 单文件限制 100MB，不纳入版本控制）
+dataset/
+outputs_single_v/
+compare_baselines/
+
+# 论文素材与本地中间产物（与模型代码无关）
+_paper_crops/
+docx/
+docx_work/
+
+# IDE 与缓存
+.idea/
+__pycache__/
+*.pyc
+.pytest_cache/

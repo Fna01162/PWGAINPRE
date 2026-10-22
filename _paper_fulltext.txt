@@ -1,0 +1,752 @@
+===== PAGE 1 =====
+                                                          Applied Energy 288 (2021) 116641
+
+
+                                                 Contents lists available at ScienceDirect
+
+                               Applied Energy
+
+
+                                          journal homepage: www.elsevier.com/locate/apenergy
+
+
+
+Spatiotemporal wind field prediction based on physics-informed deep
+learning and LIDAR measurements
+Jincheng Zhang, Xiaowei Zhao ∗
+
+Intelligent Control & Smart Energy (ICSE) Research Group, School of Engineering, University of Warwick, Coventry, UK
+
+
+A R T I C L E   I N F O            A B S T R A C T
+
+
+Keywords:                                       Spatiotemporal wind field information is of great interest in wind industry e.g. for wind resource assessment
+Deep learning                                and wind turbine/farm monitoring & control. However, its measurement is not feasible because only sparse
+LIDAR measurements                               point measurements are available with the current sensor technology such as LIDAR. This work  fills the
+Physics-informed neural networks                  gap by developing a method that can achieve spatiotemporal wind field predictions by combining LIDAR
+Wind field prediction
+                                           measurements and flow physics. Specifically, a deep neural network is constructed and the Navier–Stokes
+                                                  equations, which provide a good description of atmospheric flows, are incorporated in the deep neural network
+                                          by employing the physics-informed deep learning technique. The training of this physics-incorporated deep
+                                                  learning model only requires the sparse LIDAR measurement data while the spatiotemporal wind field in the
+                                           whole domain (which cannot be measured) can be predicted after training. This study, which can discover
+                                           complex wind patterns that do not present in the training dataset, is totally distinct from previous machine
+                                                  learning based wind prediction studies which treat machine learning models as ‘‘black-box" and require the
+                                               corresponding input and target values to learn complex relations. The numerical results on the prediction of
+                                                 the wind field in front of a wind turbine show that the proposed method predicts the spatiotemporal flow
+                                                    velocity (including both downwind and crosswind components) in the whole domain very well for a wide
+                                              range of scenarios (including various measurement noises, resolutions, LIDAR look directions, and turbulence
+                                                          levels), which is promising given that only line-of-sight wind speed measurements at sparse locations are used.
+
+
+
+1. Introduction                                                   can offer brand new opportunities in wind industry e.g. developing
+                                                                                 strategies on the wind resource assessment and the monitoring and
+   As one of the most important renewable energy resources, wind     control of wind turbine/farm. For example, detailed wind information
+energy is under fast development all over the world. While driving large    was investigated based on CFD simulations for the wind resource assess-
+mechanical devices (such as horizontal-axis wind turbines) to generate    ment of complex terrains in [9,10] while the control of wind turbines
+power, wind is also the main source of disturbance that causes damages    based on detailed flow structures was studied in [11] which showed
+to these devices and undermines the quality of the generated electricity.     the detailed wind information could improve the control performance
+In order to make good use of the incoming wind and to mitigate the      significantly. Therefore, this work aims to bridge the gap between the
+impact of the disturbance, wind speed measurement technologies, such                                                                              limitation of the current wind measurement technology and the need of
+as light detection and ranging (LIDAR) [1], have been developed in                                                                       spatiotemporal wind information in various applications, by developing
+recent years. Extensive research efforts have since then been spent in
+                                                                  a deep learning based method that can predict the spatiotemporal wind
+the measurement analysis of LIDAR [2,3] and their applications in wind
+                                                                                     field in the whole flow domain through combining LIDAR measurement
+turbine control [4,5] and wind resource assessment [6,7]. However,
+                                                              and flow physics.
+LIDAR can only provide wind speed measurements at sparse spatial
+                                                                            Currently there are very limited studies on unsteady wind field
+locations along the laser beam. As pointed out in [8],  it can only
+                                                                           predictions from LIDAR measurements. In [12], a wind field reconstruc-
+measure the line-of-sight (LoS) wind speed in the laser beam direction,
+                                                                             tion method was proposed, where a simplified dynamic model of theso the wind speed magnitude and direction have to be estimated
+                                                                    atmospheric boundary layer was derived and then an unscented Kalman(Cyclops’ dilemma). Thus the spatiotemporal wind field measurement
+is out of reach with the current sensor technologies. On the other      filter (UKF) was used to estimate the model state from LIDAR measure-
+hand, the detailed wind information  is of great interest because  it     ments. The sensitivity study of the developed method was also carried
+
+
+  ∗Corresponding author.
+     E-mail addresses: jincheng.zhang@warwick.ac.uk (J. Zhang), xiaowei.zhao@warwick.ac.uk (X. Zhao).
+
+https://doi.org/10.1016/j.apenergy.2021.116641
+Received 15 October 2020; Received in revised form 28 December 2020; Accepted 7 February 2021
+Available online 17 February 2021
+0306-2619/© 2021 Elsevier Ltd. All rights reserved.
+===== PAGE 2 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+out, where different beam half-angles, look directions, atmosphere     they can predict the wind patterns which are present in the training
+conditions, and measurement noise levels were considered. In [13], a     dataset. We mention that the paper [40] did explore to involve physics
+velocity and pressure field estimation framework was proposed, where     in the form of simple analytical relations in the design of the machine
+a reduced order dynamic model was built based on Navier–Stokes (NS)     learning on the wind farm modeling, which showed very promising
+equations, by uniquely employing a pressure Poisson equation for-      results. However, all these studies followed the traditional supervised
+mulation in conjunction with a basis function decomposition method.    machine learning, thus cannot discover the wind patterns that are not
+Then a modified UKF algorithm was used for the state estimation. The     present in the measurement data. In summary, our work, which fuses
+proposed method was validated by both numerical experiments and     physics in terms of PDEs and data in the deep learning training process
+real-world LIDAR measurements.                                             for wind applications for the first time, can achieve the predictions
+   The aforementioned studies employed traditional approaches and     of spatiotemporal wind field in the whole domain based on only line-
+relied on either low-fidelity flow models or reduced order modeling of     of-sight LIDAR measurements at sparse spatial locations, which is not
+NS equations. Thus the prediction accuracy was undermined. In this     achievable by either traditional numerical models or existing machine
+work, machine learning approach will be employed with NS equations     learning based models in the literature.
+being directly encoded into the wind field prediction process, which       The method proposed in this work is tested and validated using
+can approximate the complex nonlinear dynamics of the incoming wind     large-scale numerical simulations based on SOWFA (Simulator for On-
+without model reduction.                                               shore/Offshore Wind Farm Applications) [41]. SOWFA is a numerical
+   Machine learning, in particular deep learning [14], is developing     solver based on OpenFOAM for the 3D large eddy simulation (LES)
+very fast in the past few years, and its applications in wind industry     of wind flow around wind turbine array in the atmospheric boundary
+have also seen great successes e.g. in wind power forecasting [15],     layer, which is developed by National Renewable Energy Laboratory.
+wind speed forecasting [16,17], and wind farm wake modeling [18,       It is widely used [41] and has been validated in various studies such
+19]. However, the incorporation of physical laws in the training of     as the study of the turbine dynamics [42] and the control of wind
+deep learning models has not been explored in wind energy studies     farms [43].  It  is used in this work as the high-fidelity numerical
+while such ideas are emerging in other physical systems such as the     experiment platform to simulate the real-world wind flows in the at-
+data-based turbulence modeling [20,21], the discovery of governing    mospheric boundary layer. The LIDAR measurement and the turbulent
+equations [22,23], solving high-dimension partial differential equations    wind field are extracted from SOWFA simulations as the model training
+(PDEs) [24] and the surrogate modeling of physical systems [25,26].     data and the ground truth (for model validation) respectively. The
+Recently a versatile machine learning framework for solving forward     results show that the proposed method can predict the spatiotemporal
+and inverse problems involving PDEs, called physics-informed neural    wind field very well, including both the wind magnitude and direction
+networks (PINNs), was proposed in [27]. The main idea of PINNs is to     predictions. In particular, the propagation of the high-speed/low-speed
+encode PDEs in terms of loss functions, which are then used for neural     flow structures in the incoming wind is accurately predicted, which is
+network (NN) training together with the available labeled data. Specifi-     of great importance for wind turbine control. To further demonstrate
+                                                                        the method’s robustness, a sensitivity analysis is also carried out, wherecally, automatic differentiation [28] is employed to take the derivatives
+                                                           LIDAR measurements with various levels of noise and under differentof the NN output with respect to the NN input (i.e. space and time
+                                                           LIDAR spatial/temporal resolutions, different LIDAR look directionscoordinates). These derivatives are then used to form the loss functions
+                                                              and different freestream turbulence intensity (FSTI) levels are consid-that represent the residues of the PDEs. The development of PINNs
+                                                                            ered. The results show that the proposed method performs very wellis becoming very active. Recent studies include both method develop-
+                                                                 under all the scenarios considered.ment (such as its uncertainty quantification [29], the use of adaptive
+                                                                The main contributions and novelties of this paper are summarizedactivation functions [30] and the learning from multi-fidelity [31]
+                                                                          as follows:and noisy data [32]) and various applications (such as vortex-induced
+vibrations [33], high-speed flow [34], and hidden-physics inference        (1) The prediction of spatiotemporal wind velocity field in the
+from flow visualizations [35]).                                        whole flow domain based on line-of-sight wind speed at
+   In this work, following the PINNs framework [27], a deep learning          only a few sparse locations measured by LIDAR is achieved,
+based method is proposed for the predictions of spatiotemporal wind         which is of great importance for developing advanced ap-
+field using only LIDAR measurements at sparse locations. Here the          proaches for the wind resource assessment and for the mon-
+NS equations are encoded in the deep NN and an observation process           itoring and control of wind turbine/farm. The developed
+is embedded into the NN which maps the full flow state to LIDAR         method can achieve: (i) the prediction of flow dynamics over
+observations. The NN training  is carried out to minimize both the           the whole domain of interest, including the spatial locations
+functional loss (which encodes the NS equations) and the measure-          where no measurements are available;  (ii) great accuracy in
+ment loss (which  is based on LIDAR observations). We distinguish         wind field estimation, because the spatiotemporal correlations
+our method with traditional numerical methods and existing machine          between measurements are taken into account implicitly through
+learning based wind prediction methods as follows: (1) Various nu-        NS equations without model reduction; (iii) robust wind estima-
+merical models e.g. [36–38] are widely used for wind simulations and            tion in the scenarios of both ‘‘small’’ and ‘‘big’’ data, as the issue
+the detailed wind field can be obtained by solving the NS equations            of overfitting commonly encountered in deep learning is tackled
+numerically with properly-defined boundary conditions or the input          by enforcing the physical constraints.
+conditions estimated from measurement data [39]. However, these        (2) To our knowledge, this is for the first time that physical
+models are mainly designed for forward simulations of wind flows. It is          laws (in terms of PDEs) and data are fused in the training
+extremely challenging to incorporate real-time scattered measurement           of deep learning models for wind applications. Specifically
+data in these models because it involves solving the inverse problem,          a deep NN with a large degree of freedom is constructed and
+which would require a formidable number of time-consuming simu-           then the NS equations (which provide a good description of
+lations to calibrate the model parameters and the input conditions           atmospheric flows) are incorporated directly in the deep NN.
+against the measurement data. In contrast, the PINNs framework is            After that, the deep NN is trained to minimize the errors from
+specifically designed to incorporate data and PDEs in a unified manner          both  fitting the LIDAR measurements and enforcing the NS
+which makes it very powerful in solving inverse problems governed            equations. Because the existing wind prediction studies are ei-
+by PDEs. (2) Previous machine learning based wind prediction studies            ther purely data-driven [16,17] or based on low-fidelity/reduced
+e.g. [16,18,40] treat machine learning models as ‘‘black-box’’ and           order models [12,13], they cannot take full advantage of both
+require the corresponding input and target values for training. Then            physical laws in terms of PDEs and data.
+
+                                                                        2
+===== PAGE 3 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+                Table 1
+               The main terminologies (including abbreviations, parameters and variables) mentioned in this paper.
+
+                       List of terminologies (abbreviations)
+               DoF          Degree of freedom                       NN               Neural network
+                  FSTI           Freestream turbulence intensity                 NS               Navier–Stokes
+              HPC          High-performance computing                   PDE                Partial differential equation
+                LES           Large eddy simulation                         PINN             Physics-informed neural network
+               LIDAR         Light detection and ranging                  SOWFA           Simulator for Offshore Wind Farm Applications
+                 LoS             Line-of-sight                               UKF             Unscented Kalman filter
+             MRMSE      Mean value of the root-mean-squared errors
+
+                       List of terminologies (parameters and variables)
+                   𝐵𝑖           The bias term in the NN̂                             𝑢               The prediction value of the wind magnitude
+           𝐷           The turbine rotor diameter                              𝑢∗              The true value of the wind magnitudẽ
+           𝒟           The dataset of all the NS test points            𝑈∞             The average freestream wind speed
+           𝒟           The nondimensionalized̃ 𝒟̄                  𝑈              The effective wind speed
+           𝐿+ 1         The total number of layers in the NÑ              𝒰𝑙                  All the LIDAR measurements by the left beam
+               ℒ1           The loss arising from NS residue terms             𝒰𝑙               Nondimensionalized left beam data
+               ℒ2           The loss arising from LIDAR observations̃          𝒰𝑟                  All the LIDAR measurements by the right beam
+          ℒ           The total NN loss                             𝒰𝑟               Nondimensionalized right beam data
+                  𝑁𝑑𝑜𝑓         The total DoF of the NN                        𝑊𝑖              The weight matrix in the NN
+                  𝑁𝑑1          The batch size for right-beam test points                          [̃𝑥𝑙,̃ 𝑦𝑙]           The spatial coordinate of points in the left beam
+                  𝑁𝑑2          The batch size for left-beam test points                            [̃𝑥𝑟,̃ 𝑦𝑟]           The spatial coordinate of points in the right beam
+                  𝑁𝑛𝑠          The batch size for NS residue terms                       [𝑥𝑛𝑠, 𝑦𝑛𝑠, 𝑡𝑛𝑠]       The test points to evaluate NS residue terms
+              𝑁ℎ           The neuron number of the hidden layers                𝜖𝑢              The MRMSE of the predicted wind magnitude
+               𝑁𝑙           The total number of points in the left beam             𝜖𝛾              The MRMSE of the predicted wind direction
+              𝑁𝑟           The total number of points in the right beam̂          𝛾               The prediction value of the wind direction
+                       𝑁𝑡𝑒𝑠𝑡         The total number of NS test points                    𝛾∗              The true value of the wind direction
+                𝑇            The total time period                                  𝜈               The kinematic viscosity of air̃
+                   𝑢            The LIDAR measurement values                𝜓               The stream function
+                       𝑢𝑟𝑙𝑜𝑠        NN output of the LoS speed in the right beam       𝜎               The activation function in the NN
+                         𝑢𝑙𝑙𝑜𝑠        NN output of the LoS speed in the left beam
+
+
+   (3) The developed method is validated through high-fidelity       (i.e. the whole hub-height 2D flow domain colored in blue in Fig. 1(A))
+     LES wind farm simulations and its robustness is verified    from time 0 to 𝑇based on only the LoS wind speed measurements at a
+     under a wide range of scenarios. The results show that the    few sparse locations marked as cross signs in Fig. 1(A).
+      proposed method predicts the spatiotemporal flow velocity in        This task  is not achievable by using the traditional supervised
+      the whole flow domain very well for all the considered scenar-    machine learning framework with whether simple NN such as multi-
+       ios including LIDAR measurements with various levels of noise     layer perceptions or complex NN such as convolution NN and recurrent
+     and under different LIDAR spatial/temporal resolutions, differ-    NN, because the traditional framework requires the information on
+      ent LIDAR look directions and different FSTI levels. Both the     the whole spatiotemporal wind field as training data, but in reality
+     wind magnitude and direction are accurately predicted by using     only the LoS wind speed data at sparse locations is available. In order
+      only the LoS LIDAR measurements, overcoming the Cyclops’     to reconstruct the spatiotemporal wind field based on only sparse
+      dilemma. A short-term wind forecasting is also achieved which    measurement data, our work employs the novel PINNs framework,
+      does not rely on the Taylor’s frozen turbulence hypothesis [44],    where the incompressible NS equations, which provides a very good
+       as the NN learns the dynamics of the evolving wind field from     description for many fluid flows such as atmospheric boundary layer
+     NS equations.                                                        flows, are fused with LIDAR data in the training of the deep learning
+                                                                   model.
+   The remaining part of this paper is organized as follows: the deep
+                                                                The overall flowchart illustrating the proposed method is shown in
+learning based method for the spatiotemporal wind field predictions is
+                                                                                  Fig. 1, where the training dataset collection, the deep NN structure
+described in Section 2. Then the performance of the proposed method
+                                                              and training, and the model prediction are illustrated in Fig. 1(A–
+is tested by using an LES wind farm simulator as the experimental
+                                                                                B), Fig. 1(C), and Fig. 1(D–E) respectively. The detailed training and
+platform in Section 3, where a wide range of scenarios are considered
+                                                                           prediction process is described in the rest part of this section.to verify the robustness of the proposed method. Finally the conclusions
+are drawn in Section 4. The main terminologies mentioned in this paper
+                                                                                 2.1. Training datasetare presented in Table 1.
+
+2. Methodology                                                  The training dataset in this work is the LoS wind speed values at
+                                                                          sparse spatial locations measured by LIDAR beams. The data measured
+   This work addresses the problem of predicting the spatiotemporal    by the left and right beams are collected separately as the observation
+wind velocity field in the whole flow domain by physics-informed     process (i.e. the function that maps the flow states to the measurement
+deep learning and LIDAR measurements at sparse spatial locations. The     values) depends on the beam direction. Denote the spatial coordinate
+considered LIDAR configuration is illustrated in Fig. 1(A), where two     of the 𝑖th measurement point in the right beam as [̃𝑥𝑟𝑖,̃ 𝑦𝑟𝑖], the spatial
+laser beams in the horizontal hub-height 2D plane (shown as the shaded     coordinate of the 𝑖th measurement point in the left beam as [̃𝑥𝑙𝑖,̃ 𝑦𝑙𝑖], and
+blue area) are used to measure the LoS wind speed in the laser beam     the LIDAR measurement values at these coordinates  at̃ 𝑡𝑡ℎsecond as̃
+directions at a frequency of 1 s at discrete spatial locations along the        𝑢̃𝑥𝑟𝑖,̃𝑦𝑟𝑖,̃𝑡and̃ 𝑢̃𝑥𝑙𝑖,̃𝑦𝑙𝑖,̃𝑡respectively. We then collect all the LIDAR measure-
+beams (marked as cross signs in Fig. 1(A)). The half-angle of the beams    ments by the right beam during a time period of 𝑇seconds as the data
+is 15◦. An example of the wind speed measurements by the left and     matrix̃ 𝒰𝑟of shape [𝑁𝑟× 𝑇, 4], where 𝑁𝑟represents the total number
+right beams at these discrete locations during a time period from 0     of discrete points in the right beam and each row  of̃ 𝒰𝑟consists of
+to 𝑇is shown in Fig. 1(B). The wind field prediction problem thus     the spatiotemporal coordinate [̃𝑥𝑟𝑖,̃ 𝑦𝑟𝑖,̃ 𝑡] and the corresponding measure-
+states as how to predict the spatiotemporal velocity (including both the    ment valuẽ 𝑢̃𝑥𝑟𝑖,̃𝑦𝑟𝑖,̃𝑡. The measurements by the left beam are collected in
+downwind and crosswind components) field in the domain of interest     the same way as̃ 𝒰𝑙of shape [𝑁𝑙× 𝑇, 4] with 𝑁𝑙representing the total
+
+                                                                        3
+===== PAGE 4 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 1. The flowchart illustrating the proposed spatiotemporal wind field prediction method. (A) LIDAR configuration. (B) The LoS wind speed measured by the left and right
+laser beams during a certain period. (C) The deep learning model which incorporates the NS equations and LIDAR measurements. (D) The prediction of wind velocity at a given
+time instant and a given location after NN training. (E) The wind field prediction in the whole domain at a given time instant.
+
+number of discrete points in the left beam. These data matrices are then     𝒰𝑙. In order to evaluate the trained machine learning model, the test
+nondimensionalized by the characteristic length 𝐷, the characteristic     dataset is specified as the spatiotemporal flow field in the whole domain
+time 𝐷∕𝑈∞, and the characteristic velocity 𝑈∞, where 𝐷represents     in front of the wind turbine during the same time period 𝑇. To avoid
+the turbine rotor diameter and 𝑈∞represents the average freestream     confusion, we mention that the training and test dataset in this work
+wind speed. The nondimensionalized data matrices, which are the only     are totally different, with the former consisting of the LoS wind speed
+wind data required for the NN training, are hereby denoted as 𝒰𝑟and     data at sparse locations and the latter consisting of the wind velocity
+
+                                                                        4
+===== PAGE 5 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+vectors at every locations in the 2D plane in front of the wind turbine,     𝑓2(𝑢, 𝑣) = 𝑢𝑐𝑜𝑠(−15◦) −𝑣𝑠𝑖𝑛(−15◦)                                   (6)
+while in the supervised machine learning they are generally of the same
+                                                             The inclusion of more LIDAR beams and/or other types of flow sensors
+data structure and are usually obtained by dividing the same dataset.
+                                                                   such as pressure sensors, is straightforward by embedding the corre-
+                                                                   sponding observation processes in this second NN. In this work, only
+2.2. Neural network structure
+                                                                         𝑓1 and 𝑓2 are embeded as only the measurements from the left and
+                                                                               right LIDAR beams are used for the NN training.   After collecting the training dataset, a fully-connected deep NN is
+                                                                           Next, a third NN, as shown in shaded pink and denoted as DNN3constructed, which is illustrated in shaded gray and denoted as DNN1
+                                                                              in Fig. 1(C), is constructed based on the second NN by taking thein Fig. 1(C). This deep NN takes the nondimensional spatiotemporal
+                                                                            derivative of the NN output with respect to the NN input using au-coordinate (i.e. [𝑡, 𝑥, 𝑦]) as the input and returns the nondimensional
+                                                                      tomatic differentiation. This NN, which is the physics-informed part,stream function [45] and the pressure as the output (i.e. [𝜓, 𝑝]). It is
+                                                                          takes the nondimensional spatiotemporal coordinate (i.e.  [𝑡, 𝑥, 𝑦]) asused to approximate the mapping between the continuous spatiotem-
+                                                                        the input and returns the NS residue terms (i.e. [𝑒𝑢, 𝑒𝑣]) as the out-poral coordinate and the corresponding quantities, such that given any
+                                                                             put. The NS residue terms are defined by reformulating the following
+time instant 𝑡𝑖and any location [𝑥𝑖, 𝑦𝑖] the deep NN is trained to return
+                                                                   nondimensional 2D NS equations
+𝜓(𝑡𝑖, 𝑥𝑖, 𝑦𝑖) and 𝑝(𝑡𝑖, 𝑥𝑖, 𝑦𝑖) as the output. However, no data about 𝑝and 𝜓
+is needed for training this NN because these quantities are just auxiliary     𝜕𝑢  𝑢𝜕𝑢  𝑣𝜕𝑢  −𝜕𝑝    1  𝜕2𝑢 + 𝜕2𝑢 )                           (7)quantities used for deriving the velocity and encoding NS equations.    𝜕𝑡+ 𝜕𝑥+ 𝜕𝑦=  𝜕𝑥+ 𝑅𝑒( 𝜕𝑥2   𝜕𝑦2
+This fully-connected NN can be expressed in recursive form as            𝜕𝑣  𝑢𝜕𝑣  𝑣𝜕𝑣  −𝜕𝑝    1  𝜕2𝑣 + 𝜕2𝑣 ),                          (8)                                                    𝜕𝑡+ 𝜕𝑥+ 𝜕𝑦=  𝜕𝑦+ 𝑅𝑒( 𝜕𝑥2   𝜕𝑦2
+𝐻0 = [𝑡, 𝑥, 𝑦],
+                                                                          as
+𝐻𝑖= 𝜎(𝐻𝑖−1 ⋅𝑊𝑖+ 𝐵𝑖), 1 ≤𝑖≤𝐿,                                    (1)
+                                                                         𝜕𝑢                                                                                                             𝜕2𝑢                                                                      𝑢𝜕𝑢                                                                           𝑣𝜕𝑢                                                                          +                                                                                                                                                                )                        (9)𝐻𝐿= [𝜓, 𝑝],                                               𝑒𝑢=                                                       𝜕𝑡+                                                       𝜕𝑥+                                                             𝜕𝑦+ 𝜕𝑥−1𝜕𝑝   𝑅𝑒( 𝜕𝑥2𝜕2𝑢                                                                                                                𝜕𝑦2
+
+where 𝐿+ 1 represents the total number of layers in this deep NN,                                                                       𝜕𝑣  𝑢𝜕𝑣  𝑣𝜕𝑣   𝜕𝑝       𝜕2𝑣 + 𝜕2𝑣 ).                    (10)                                                       𝑒𝑣=                                                       𝜕𝑡+ 𝜕𝑥+ 𝜕𝑦+ 𝜕𝑦−1𝑅𝑒( 𝜕𝑥2   𝜕𝑦2{𝑊𝑖, 1 ≤𝑖≤𝐿} and {𝐵𝑖, 1 ≤𝑖≤𝐿} represent all the training variables
+in this NN, and 𝜎represents the activation function. The shapes of the    Here 𝑅𝑒= (𝑈∞𝐷)∕𝜈with 𝜈representing the kinematic viscosity of air.
+weight matrix 𝑊1, {𝑊𝑖, 1 < 𝑖< 𝐿} and 𝑊𝐿are [3, 𝑁ℎ], [𝑁ℎ, 𝑁ℎ] and        In summary, there are three deep NNs constructed in the whole
+[𝑁ℎ, 2] respectively, where 𝑁ℎrepresents the neuron number of the   NN structure. However, they are essentially just one NN in terms
+hidden layers. The shapes of the bias term {𝐵𝑖, 1 ≤𝑖< 𝐿} and 𝐵𝐿     of training, as all of them share exactly the same training variables
+are [1, 𝑁ℎ] and [1, 2] respectively. The total degree of freedom (DoF) of    and only one loss function will be defined to train these training
+this deep NN (i.e. the total number of training variables) can then be     variables. The NN training and prediction details are described in the
+calculated as                                                           next subsection.
+
+𝑁𝑑𝑜𝑓= 3𝑁ℎ+ (𝐿−2)𝑁ℎ𝑁ℎ+ 2𝑁ℎ+ (𝐿−1)𝑁ℎ+ 2.                  (2)
+                                                                                 2.3. NN training and prediction
+The hyperbolic tangent function is used for all the hidden layers in this
+work and the activation is not applied for the output layer. We mention       The deep NN is trained to minimize the loss arising from both the NS
+that 𝐿is typically very large. Thus the NN is termed ‘‘deep’’ and it is     residue terms and LIDAR observations. The loss arising from NS residue
+this deep structure that enhances the ability of the NN in capturing very     terms is defined as
+complex nonlinear dynamics. We mention that fully-connected NN with                 𝑁𝑛𝑠                          𝑁𝑛𝑠                              ∑                                       ∑such large DoF is generally not used in traditional supervised machine    ℒ1 =  1                                                                                                     |𝑒𝑢(𝑥𝑛𝑠𝑖, 𝑦𝑛𝑠𝑖, 𝑡𝑛𝑠𝑖)|2 +  1                                                                                                                                 |𝑒𝑣(𝑥𝑛𝑠𝑖, 𝑦𝑛𝑠𝑖, 𝑡𝑛𝑠𝑖)|2          (11)
+learning as the issue of overfitting is hard to tackle, while it can be used          𝑁𝑛𝑠 𝑖=1                 𝑁𝑛𝑠 𝑖=1
+in this work as overfitting is constrained by the encoded PDEs in the    where {[𝑥𝑛𝑠𝑖, 𝑦𝑛𝑠𝑖, 𝑡𝑛𝑠𝑖], 1 ≤𝑖≤𝑁𝑛𝑠} is a batch of test points which is fed
+physics-informed deep learning framework.                                to the deep NN to evaluate 𝑒𝑢and 𝑒𝑣. In practice, a set of test points
+   After constructing this deep NN, a second NN, as shown in shaded     in the spatiotemporal domain of interest are first collected in a data
+green and denoted as DNN2 in Fig. 1(C), is constructed which takes     matrix̃ 𝒟of shape [𝑁𝑡𝑒𝑠𝑡, 3], where 𝑁𝑡𝑒𝑠𝑡is the total number of test
+the nondimensional spatiotemporal coordinate (i.e. [𝑡, 𝑥, 𝑦]) as the input     points and each row of̃ 𝒟contains one spatiotemporal coordinate. Then
+and returns the nondimensional downwind velocity 𝑢, crosswind veloc-     {[𝑥𝑛𝑠𝑖, 𝑦𝑛𝑠𝑖, 𝑡𝑛𝑠𝑖], 1 ≤𝑖≤𝑁𝑛𝑠} is generated by randomly sampling from the
+ity 𝑣and pressure 𝑝as the output. This second NN is derived based on     data matrix 𝒟, which is the data matrix̃ 𝒟nondimensionalized by the
+the first NN, by taking the derivative of the NN output of the first NN     characteristic scale 𝐷and 𝐷∕𝑈∞. In this work, a 81 × 41 × 101 uniform
+with respect to the NN input using automatic differentiation. Thus it     grid points in the domain [−240, 0] m × [−60, 60] m × [0, 100] s are used
+shares the same training variables with the first NN and no new training                                                                            to generatẽ 𝒟.
+variables are created. The output of this second NN is derived by                                                                The loss arising from LIDAR observations is defined as
+
+𝜕𝜓∕𝜕𝑦= 𝑢, −𝜕𝜓∕𝜕𝑥= 𝑣.                                             (3)                                                                                         𝑁𝑑1∑                                                                          1
+                                                      ℒ2 =          |𝑢𝑟𝑙𝑜𝑠(𝑥𝑟𝑖, 𝑦𝑟𝑖, 𝑡𝑟𝑖) −𝑢𝑟𝑖|2Therefore, the continuity equation                                                                     𝑁𝑑1  𝑖=1
+𝜕𝑢   𝜕𝑣
+                                                                                            𝑁𝑑2∑𝜕𝑥+    𝜕𝑦= 0,                                                        (4)       +  1                                                                                                                       |𝑢𝑙𝑙𝑜𝑠(𝑥𝑙𝑖, 𝑦𝑙𝑖, 𝑡𝑙𝑖) −𝑢𝑙𝑖|2                              (12)
+is satisfied automatically. As LIDAR can only measure the LoS wind           𝑁𝑑2  𝑖=1
+speed, no data about 𝑢or 𝑣is available for the NN training. To train    where {[𝑥𝑟𝑖, 𝑦𝑟𝑖, 𝑡𝑟𝑖, 𝑢𝑟𝑖], 1 ≤𝑖≤𝑁𝑑1}  is a batch of right beam mea-
+the NN with the LIDAR data, an observation process that maps the flow    surement data which are randomly-sampled from the matrix 𝒰𝑟, and
+state (i.e. [𝑢, 𝑣, 𝑝]) to LIDAR observations (i.e. [𝑢𝑟𝑙𝑜𝑠, 𝑢𝑙𝑙𝑜𝑠]) is embedded to      {[𝑥𝑙𝑖, 𝑦𝑙𝑖, 𝑡𝑙𝑖, 𝑢𝑙𝑖], 1 ≤𝑖≤𝑁𝑑2} is a batch of left beam measurement data
+the second NN, which is shaded in light red in Fig. 1(C). The functions    which are randomly-sampled from the matrix 𝒰𝑙.
+𝑓1 and 𝑓2 in Fig. 1(C) represent the right and left beam observation         Finally, the deep NN is trained to minimize the total loss defined
+processes respectively, which are expressed as                             as
+
+𝑓1(𝑢, 𝑣) = 𝑢𝑐𝑜𝑠(15◦) −𝑣𝑠𝑖𝑛(15◦)                                       (5)  ℒ= ℒ1 + ℒ2,                                                  (13)
+
+                                                                        5
+===== PAGE 6 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+Algorithm 1 The NN training and prediction procedure
+
+ 1: % The NN training
+ 2: Load LIDAR measurement data, i.e. 𝒰𝑟and 𝒰𝑙.
+ 3: Load the time and space coordinates of NS test points 𝒟.
+ 4: Set training iteration number 𝑁𝑖𝑡𝑒𝑟.
+ 5: Set the batch size 𝑁𝑛𝑠, 𝑁𝑑1, 𝑁𝑑2.
+ 6: for i in [1, 2, ..., 𝑁𝑖𝑡𝑒𝑟] do
+ 7:    Generate data batches of size 𝑁𝑑1, 𝑁𝑑2 and 𝑁𝑛𝑠from 𝒰𝑟, 𝒰𝑙and
+   𝒟respectively.
+ 8:    Train the deep NN by feeding these data batches to minimize
+    the total loss ℒ.
+ 9: end for
+
+
+10: % The NN prediction
+11: Set any time coordinate of interest 𝑡.
+12: Set a mesh of dimension 𝑁𝑚𝑒𝑠ℎfor the whole 2D domain.
+13: for  i in [1,2,...,𝑁𝑚𝑒𝑠ℎ] do
+14:    Set [𝑥𝑖, 𝑦𝑖] by the location of the 𝑖th mesh point.
+15:    Propagate [𝑥𝑖, 𝑦𝑖, 𝑡] through DNN2 to predict 𝑢and 𝑣at the 𝑖th
+   mesh point.
+16: end for
+17: The wind field in the whole domain at time 𝑡is obtained by      Fig. 2. A top view of the simulation domain at the turbine hub height. The contour
+   combining the 𝑢and 𝑣predictions at all the mesh points.               shows the instantaneous flow velocity magnitude.
+
+
+                                                                                Table 2
+                                                                            The hyper-parameters in the NN structure and the NN training procedure. Here 𝑙𝑟
+by feeding the data batches {[𝑥𝑛𝑠𝑖, 𝑦𝑛𝑠𝑖, 𝑡𝑛𝑠𝑖], 1 ≤𝑖≤𝑁𝑛𝑠}, {[𝑥𝑟𝑖, 𝑦𝑟𝑖, 𝑡𝑟𝑖, 𝑢𝑟𝑖], 1      represents the learning rate.
+≤𝑖≤𝑁𝑑1} and {[𝑥𝑙𝑖, 𝑦𝑙𝑖, 𝑡𝑙𝑖, 𝑢𝑙𝑖], 1 ≤𝑖≤𝑁𝑑2} to the NN simultaneously     𝐿         𝑁ℎ           𝑁𝑛𝑠            𝑁𝑑1            𝑁𝑑2                𝑙𝑟
+during each training iteration. The Adam optimization algorithm [46]      11         128         1000         1100         1100            10−4
+is employed in this work for the NN training.
+   After training, the spatiotemporal flow field in the whole flow
+domain, including both the downwind and crosswind velocity compo-                                                               LoS wind speed measurements. The turbine rotor dynamics is excluded
+nents, can be predicted. Specifically, given any time coordinate 𝑡𝑖and     in this work, similarly as previous studies [12,13]. We mention that the
+space coordinate [𝑥𝑖, 𝑦𝑖], the corresponding wind speed 𝑢𝑖and 𝑣𝑖can be      rotor’s blockage effects have impacts on the flow field in the vicinity
+predicted through the second NN, as shown in Fig. 1(D). The prediction
+                                                                              of the wind turbine [47,48], but the impacts become negligible in the
+of the flow field in the whole domain at a given time instant, as shown
+                                                                        freestream flow further upstream which is the main interested region
+in Fig. 1(E), can be achieved by propagating the given time coordinate
+                                                                                for this work. The simulation in this work is carried out in local high-
+and the space coordinates of all the mesh points in the domain of
+                                                                   performance computing (HPC) clusters, which takes around 2 hours’
+interest through the second NN. The whole training and prediction
+                                                                     computational time using 256 processors.
+procedure is summarized as Algorithm 1. In addition, we mention that
+after training, the short-term flow field forecasting can also be carried
+                                                                                 3.2. Performance evaluation
+out in a straightforward manner by simply specifying the time 𝑡in Line
+11 of Algorithm 1 as the time coordinate of interest in the future.
+                                                    A baseline case is used here to test the performance of the proposed
+                                                                 method. For the turbulent atmospheric boundary layer simulations, an3. Numerical results
+                                                                     average freestream wind speed of 8 m∕s with an FSTI level of 6%
+   The wind field prediction method developed above is evaluated      is considered. For the LIDAR configurations, the range of the LIDAR
+in this section, by using the LES wind farm simulator SOWFA as the    beams is 220 m and the distance between discrete measurement points
+experimental platform. The simulation setups are described first, then      is 20 m. There are a total of 11 spatial measurement points per LIDAR
+the spatiotemporal flow field prediction is carried out and the results    beams. The LIDAR measurement is carried out every second during the
+are validated with the corresponding true values  (i.e. the SOWFA    whole period of 100 s and the measurement noise is excluded. Since
+simulation results).                                                      the wind turbine usually operates with a yaw angle equal to 0◦, the
+                                                           LIDAR look direction is set as the mean wind direction in this baseline
+3.1. Simulation setups                                                         case.
+                                                                     There are still some hyper-parameters in the NN structure and the
+   The LES wind farm solver SOWFA is employed here to simulate   NN training procedure to be determined. The tuning of the hyper-
+the turbulent atmospheric boundary layer. For the mesh generation, as     parameters is carried out by trying a set of configurations and compar-
+suggested by [43], a uniform mesh of size 12 m×12 m×12 m is used in     ing their training losses. The hyper-parameters’ values used in this work
+the whole simulation domain of size 3000 m × 3000 m × 1000 m, which     are given in Table 2. As can be seen, the final NN used in this work has
+is illustrated in Fig. 2. The total number of cells is about 5.2×106. 400 s    a total of 12 layers (𝐿+1) and the neuron numbers of the hidden layers
+simulations are carried out with a time step of 0.02 s. From the last 100s     are 128. This results in a total DoF of 149 378. This deep structure with
+simulations, the left and right LIDAR measurements are collected, and    such a large DoF enables the NN to accurately approximate complex
+the corresponding wind field data at turbine hub-height is recorded for     nonlinear PDE systems such as the NS systems in this work. The further
+validation. In particular, the LIDAR measurement process is simulated     increase of the layer number and the neuron number is tested, which
+by extracting the velocity vectors at the corresponding spatial locations,     has little impact on the NN’s performance. Thus the parameters given
+and then projecting them onto the LIDAR beam directions to obtain the     in Table 2 are used. The NN training is carried out using the NVIDIA
+
+                                                                        6
+===== PAGE 7 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 3. The velocity field predicted by the proposed method at the baseline case, at time (a) 𝑡= 50 s, (c) 𝑡= 60 s and (e) 𝑡= 70 s. The corresponding true values are also shown
+for comparisons (b, d, f).
+
+
+Table 3                                                                         After the NN training, the unsteady velocity field during the con-
+The MRMSE between the predicted and the true flow fields during the whole time     sidered period of 100 s is predicted by the deep NN. Three predicted
+period, for all the scenarios considered in this work, including (A) the baseline case,
+(B1-B4) LIDAR measurements with various levels of noise, (C) half spatial resolution,     snapshots, at time 𝑡= 50 s, 𝑡= 60 s and 𝑡= 70 s, along with the
+(D) half temporal resolution, (E) 20◦LIDAR look direction, and (F) FSTI level of 1%.     corresponding true snapshots (i.e. the snapshots obtained by SOWFA),
+ Case             Quantity (units)            Range              MRMSE      are shown in Fig. 3. As can be seen, all the predicted snapshots agree
+                 Magnitude (m/s)              [6.71, 9.52]              0.198       with the true snapshots very well. The wind direction and magnitude
+ (A)
+                    Direction (◦)                 [−6.03, 8.28]             2.77        have been well resolved (Cyclops’ dilemma), which is achieved because
+                 Magnitude (m/s)              [6.71, 9.52]              0.208        the correlations between the LoS wind speed measured at different
+ (B1)
+                    Direction (◦)                 [−6.03, 8.28]             2.75         locations are taken into account implicitly through NS residue terms
+                 Magnitude (m/s)              [6.71, 9.52]              0.236        in the NN training procedure. Also, the downstream convection of flow
+ (B2)
+                    Direction (◦)                 [−6.03, 8.28]             3.32         structures in the incoming wind is clearly captured. As shown from the
+                 Magnitude (m/s)              [6.71, 9.52]              0.387        predicted flow fields in Fig. 3(a, c, e), a high-speed flow structure enters (B3)
+                    Direction (◦)                 [−6.03, 8.28]             3.73         the considered flow domain from the left at 𝑡= 50 s, travels to the
+                 Magnitude (m/s)              [6.71, 9.52]              0.523       middle at 𝑡= 60 s, and hits the wind turbine at the right side of the (B4)
+                    Direction (◦)                 [−6.03, 8.28]             4.35
+                                                             domain at 𝑡= 70 s. This successful identification of the flow structure
+                 Magnitude (m/s)              [6.71, 9.52]              0.212       and its downstream convection are of great interest. For example it  (C)
+                    Direction (◦)                 [−6.03, 8.28]             2.85
+                                                                  can be used for wind turbine control to mitigate the structural loads.
+                 Magnitude (m/s)              [6.71, 9.52]              0.222        In [11], it was shown that significant wind turbine blade load reduction (D)
+                    Direction (◦)                 [−6.03, 8.28]             2.66
+                                                            was achievable by taking the coherent flow structures into account
+                 Magnitude (m/s)              [6.70, 9.73]              0.281
+  (E)                                                                          in the wind turbine control design. The paper [11] assumed that the
+                    Direction (◦)                  [11.4, 27.8]              2.46
+                                                                      coherent structures were known and fully measurable, and pointed out
+                 Magnitude (m/s)              [6.71, 8.96]              0.204
+  (F)                    Direction (◦)                 [−6.37, 6.13]             2.69         that the prediction of the detailed incoming wind information would
+                                                                       play an important role in the level of load mitigation. Therefore, the
+                                                                           prediction results in our work fill this research gap by providing an
+                                                                                 effective way for detailed flow predictions and flow structure detection.
+Tesla K80 GPU in this work with each training iteration requiring about                                                                The unsteady wind field visualization is given in the supporting
+0.17 s. After training, the prediction of the flow field at any time instant     material of this paper, including both the prediction results and the
+of interest requires about 0.012 s. These demonstrate that the proposed     true results given by SOWFA (see Video 1). As shown in the video, the
+                                                                    unsteady flow details such as the convections of high-speed/low-speedmethod can meet real-time control requirement by pre-training and
+                                                                     flow structures, are predicted accurately, which demonstrates the great
+online updating. We mention that training schemes based on transfer
+                                                                   performance of the proposed prediction method.
+learning could possibly decrease the computation time, which needs       To further quantify the accuracy of the proposed method, the mean
+further investigations and is outside the scope of the current work.        value of the root-mean-squared errors (MRMSE) between the predicted
+
+                                                                        7
+===== PAGE 8 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 4. The effective wind speed predicted by the proposed method for the baseline case at distances of 120 m, 80 m, 40 m, and 0 m before the turbine location. The corresponding
+true values are also shown for comparisons.
+
+
+
+
+
+Fig. 5. The instantaneous wind speed at turbine location predicted by the proposed method at the baseline case, at spanwise locations of 0 m, 15 m, and 30 m respectively. The
+corresponding true values are also shown for comparisons.
+
+
+and the true wind speed fields during the whole time period is given     We now demonstrate the potential use of the proposed prediction
+in Table 3, which is defined as                                    method for wind turbine control. First the effective wind speed can
+    √                                                     be extracted from the predicted spatiotemporal wind field, which is    √        𝑁𝑡𝑒𝑠𝑡    √     1 𝑇∑              1 ∑                                                                                  as the wind speed averaged over the rotor plane and calculated    √𝜖𝑢=                         (𝑢∗𝑥𝑖,𝑦𝑖,𝑡−̂ 𝑢𝑥𝑖,𝑦𝑖,𝑡)2,                          (14)     defined    𝑇               𝑁𝑡𝑒𝑠𝑡                                                                                             bȳ         𝑡=1                       𝑖=1
+where the total time 𝑇is 100, the total number of test points 𝑁𝑡𝑒𝑠𝑡                                                                          1 ∑𝑁𝑦
+is 3321, {[𝑥𝑖, 𝑦𝑖], 1 ≤𝑖≤𝑁𝑡𝑒𝑠𝑡}  is the 81 × 41 uniform-grid test    𝑈𝑥,𝑡=           𝑢𝑥,𝑦𝑖,𝑡,                                             (16)
+                                                            𝑁𝑦  𝑖=1̂points in the considered domain, and̂ 𝑢𝑥𝑖,𝑦𝑖,𝑡and 𝑢∗𝑥𝑖,𝑦𝑖,𝑡represent the
+corresponding wind speed predictions and true values. Similarly, the    where {[𝑥, 𝑦𝑖], 1 ≤𝑖≤𝑁𝑦} is a set of spatial points at a fixed distance
+MRMSE between the predicted and true wind direction fields is defined     before the turbine location and uniformly distributed from −𝐷∕2 to
+as                                                      𝐷∕2 in the spanwise direction. Fig. 4 shows the effective wind speed
+    √    √        𝑁𝑡𝑒𝑠𝑡                                               averaged over 𝑦direction at 𝑥= −130 m, 𝑥= −90 m, 𝑥= −50 m    √     1 𝑇∑              1 ∑    √                                       𝑥=                                                                    −10                                                                                                        120                                                                        m, which                                                                                            correspond                                                                                                                  to                                                                                               m, 80 m, 40 m                                                                                                                and                                                                                                                               0 m𝜖𝛾=                         (𝛾∗𝑥𝑖,𝑦𝑖,𝑡−̂ 𝛾𝑥𝑖,𝑦𝑖,𝑡)2,                          (15)    and    𝑇               𝑁𝑡𝑒𝑠𝑡         𝑡=1                       𝑖=1                                                                        before                                                                               the                                                                                    turbine                                                                                              location                                                                                                           respectively.                                                                                             The                                                                                                               corresponding                                                                                                                                       true                                                                                                                                      values
+wherê 𝛾𝑥𝑖,𝑦𝑖,𝑡and 𝛾∗𝑥𝑖,𝑦𝑖,𝑡represent the corresponding wind direction     extracted from SOWFA results are also shown. As can be seen, the
+predictions and true values. As shown in Table 3, the prediction perfor-     predicted effective wind speed matches with its true value very well.
+mance is quite satisfactory. The MRMSE is just 7.0% of the freestream   We mention that the accurate prediction of the effective wind speed
+wind speed range at this baseline case.                                               is not unexpected as it is calculated based on the accurately-predicted
+
+                                                                        8
+===== PAGE 9 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 6. The velocity field predicted by the proposed method for the case where the measurement noise is of typical commercial LIDAR devices, at time (a) 𝑡= 50 s, (c) 𝑡= 60 s
+and (e) 𝑡= 70 s. The corresponding true values are also shown for comparisons (b, d, f).
+
+
+spatiotemporal wind information. This can help wind turbine control     3.3. Sensitivity analysis
+e.g. on power regulation and load reduction.
+   Second, the proposed method can predict the instantaneous wind       The robustness of the proposed method is further verified by con-
+speed at various turbine locations. As shown in Fig. 5, three spanwise     sidering a wide range of scenarios including LIDAR measurements with
+locations, including 0 m, 15 m, and 30 m, are considered, which     various levels of noise and under different LIDAR spatial/temporal
+                                                                               resolutions, different LIDAR look directions and different FSTI levels.correspond to the turbine blade root, 1∕2 chord length, and turbine
+                                                             The prediction accuracy under all the considered scenarios is given in
+blade tip locations. The corresponding true values are also shown in
+                                                                     Table 3.
+Fig. 5 for comparisons. As can be seen, the predicted instantaneous
+                                                                           Since LIDAR measurements are subject to various error sources such
+wind speed matches with its true value quite well. This illustrates the
+                                                                          as range weighting, the measurement noise must be considered in real-
+great potential of the proposed prediction method in the control of
+                                                                 world applications. Here, the spatiotemporal wind field reconstruction
+smart rotors [49].
+                                                                from noisy LIDAR measurements is investigated, where random noise
+   Last but not least, the proposed method can achieve short-term      is added to the LoS wind speed value measured by the LIDAR at
+wind forecasting. The extrapolation of the proposed method to future    each measurement location at each time instant. The noise is drawn
+time instants is examined. In particular, the time coordinates from    from the range [−𝑒, 𝑒] uniformly and independently, where a set of
+100 s to 115 s are fed to the deep NN for predicting the 15-second     values of 𝑒are considered including 0.025 m∕s, 0.05 m∕s, 0.1 m∕s, and
+ahead preview flow information. In order to test the proposed method’s     0.2 m∕s. These cases are denoted as Case B1, Case B2, Case B3, and
+performance, another 15 s SOWFA simulations are carried out and the    Case B4 in Table 3 respectively. For each case, the deep NN is trained
+wind field data are recorded. The prediction and the corresponding true     with the noisy measurement data and then used for predicting the
+results from 100 s to 115 s are included in Fig. 5. As can be seen, the     spatiotemporal wind field. The prediction MRMSEs for all the four cases
+                                                                         are given in Table 3. As expected, the prediction becomes less accurateoverall instantaneous wind speed is predicted at satisfactory accuracy.
+                                                        when the measurement noise increases. However, for all the cases, the
+This is because the deep NN learns the dynamics of the evolving wind
+                                                                              errors remain quite small compared to the wind speed range, which
+field from NS equations during the training, and the learnt dynamics
+                                                                     demonstrates the method’s robustness against noisy measurements. As
+is retained which enables the deep NN for short-term wind forecasting
+                                                                       suggested in [12], Case B3 here represents the typical noise of the com-
+without using Taylor’s frozen turbulence hypothesis [44]. As the ma-
+                                                                          mercially available pulsed LIDAR instruments. Similar measurement
+chine learning model in this work is continuous in time, any future time                                                                     accuracy has been reported in the product guide of the continuous wave
+coordinate can be fed into the NN for prediction. Thus it avoids the                                                           LIDAR devices by ZXLidars (https://www.zxlidars.com). The predicted
+tedious tuning of time steps, time horizons and single-step/multiple-     spatiotemporal flow field for Case B3 is shown in Fig. 6. As can be
+step settings in discrete-time models. However, we mention that as in     seen, the unsteady flow field is successfully predicted with main flow
+all other wind prediction models, the prediction time horizon is still     structures identified correctly and the MRMSE remains quite small as
+limited by the correlations between the data used for predictions and    shown in Table 3, which indicate that the proposed method works
+the quantities to be predicted.                                           well with commercial LIDAR devices. Furthermore, we mention that
+
+                                                                        9
+===== PAGE 10 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 7. The velocity field predicted by the proposed method for the cases with low measurement resolutions, at time 𝑡= 50 s, 𝑡= 60 s and 𝑡= 70 s. Sub-figures (a, d, g), (b, e, h)
+and (c, f, i) are for the cases of half spatial resolution, half temporal resolution and true values respectively.
+
+
+
+
+
+Fig. 8. The velocity field predicted by the proposed method for the case where the LIDAR look direction is 20◦, at time (a) 𝑡= 50 s, (c) 𝑡= 60 s and (e) 𝑡= 70 s. The corresponding
+true values are also shown for comparisons (b, d, f).
+
+
+new methods such as Bayesian PINNs [32] are under active develop-       To further illustrate the proposed method’s great performance in
+
+ment, which might offer new opportunities for the predictions with     predicting the spatiotemporal information from very sparse measure-
+
+lower-quality measurements.                                           ments, the cases with only half spatial/temporal LIDAR measurement
+
+                                                                        10
+===== PAGE 11 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+
+
+
+Fig. 9. The velocity field predicted by the proposed method for the case where the FSTI level is 1%, at time (a) 𝑡= 50 s, (c) 𝑡= 60 s and (e) 𝑡= 70 s. The corresponding true
+values are also shown for comparisons (b, d, f).
+
+
+resolutions are investigated. For the case with half spatial resolution,    The prediction MRMSE given in Table 3 shows that the prediction
+the distance between the measurement points is set as 40 m and only 6     errors for both wind magnitude and direction remain very small.
+measurement points per LIDAR beam are used in the prediction. For the       Furthermore a different turbulence level is considered, where the
+case with half temporal resolution, the measurement frequency of the     FSTI of the turbulent atmospheric boundary layer is set as 1%. The
+LIDAR beams is set as 2 s. The prediction results are given in Fig. 7. As     prediction results are given in Fig. 9, along with the corresponding
+can be seen, the flow field predictions are similar as in the baseline     true values. As can be seen, the predictions match well with the true
+case, which demonstrates the method’s robustness with various spa-     flow fields. The MRMSE given in Table 3 also shows that the proposed
+tiotemporal measurement resolutions. In addition, we mention that the    method performs very well in this case, similarly as  all the other
+predictions here are based on the measurements at as few as 6 spatial     considered cases.
+locations per LIDAR beam, while most existing works which follow the
+PINNs framework have used a much larger set of measurement points.     4. Conclusions
+Thus the results here also demonstrate the full potential of PINNs in
+handling the situations of very sparse data. In addition, the prediction        In this paper, the prediction of the spatiotemporal wind field based
+accuracy for the half-spatial case and half-temporal case is just slightly    on sparse LIDAR wind speed measurements was investigated by using
+lower than the baseline case, which indicates the existence of data     physics-incorporated deep learning techniques. In order to achieve this,
+redundancy in the space and time domain for the baseline case. This    a deep fully-connected neural network (which has a total of 12 layers
+problem might be solved by designing novel data acquisition strategies    with the hidden-layer neuron number of 128) was first constructed,
+for the PINNs to optimally place the measurement locations, which can    and then the Navier–Stokes equations (which provide a very good
+further increase the data quality and/or reduce the data redundancy.     description of atmospheric boundary layer flows) were incorporated
+Such strategies might lead to the design of the optimal LIDAR con-     in the neural network structure. The deep neural network structure
+figurations in wind industry, such as optimal half-angles, resolutions,    with a total degree of freedom of 149 378 can approximate complex
+scanning patterns, and even the optimal coordination among LIDAR     nonlinear systems governed by partial differential equations (such as
+beams. This task, however, is not trivial and requires extensive studies     the Navier–Stokes system in this work), while the incorporation of
+on the problem formulation and the method development, thus is out     Navier–Stokes equations in the neural network training empowers the
+of the scope of the current paper.                                    deep neural network with the ability to learn the dynamics of the
+   In addition, as LIDAR can only measure the LoS wind speed, the     evolving flow field over the whole domain of interest, even though
+wind direction needs to be estimated (Cyclops’ dilemma). A different     the LIDAR measurements are only available at a few sparse spatial
+LIDAR look direction is also considered here to further demonstrate the     locations. To our knowledge, this is for the first time that physical laws
+proposed method’s ability in identifying the incoming wind direction.    and data are fused in a unified manner in the training of deep learning
+The incoming wind’s mean direction is set as 20◦from the turbine    models for wind applications.
+facing direction. The results are given in Fig. 8. As can be seen,       The proposed method was evaluated based on the high-fidelity
+the incoming wind direction is correctly identified, overcoming the    wind farm simulator SOWFA. The results showed that both the wind
+difficulties of estimating wind direction from only LoS wind speed data.    magnitude and direction were predicted accurately, overcoming the
+
+                                                                        11
+===== PAGE 12 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+Cyclops’ dilemma. This is because the correlations between the line-    Declaration of competing interest
+of-sight wind speed measured at different locations were taken into
+account implicitly through the Navier–Stokes residue terms. The un-       The authors declare that they have no known competing finan-
+steady wind field predictions were compared with the corresponding      cial interests or personal relationships that could have appeared to
+true values. A great match between prediction and true values was ob-     influence the work reported in this paper.
+served with the mean value of the root-mean-squared error being only
+0.198 m∕s for wind magnitude prediction and 2.77◦for wind direction    Acknowledgments
+predictions at the baseline case. In particular, the flow details such
+as the propagation of the high-speed/low-speed flow structures were        This work has received funding from the European Union’s Horizon
+captured by the proposed method. Thus it is expected that the proposed    2020 research and innovation programme under the Marie Sklodowska-
+method can lead to a significant reduction of turbine blade structural     Curie grant agreement No 765579. The authors also acknowledge
+loads through advanced blade control techniques which take these     the Scientific Computing Research Technology Platform (SCRTP) at
+                                                                        the University of Warwick for providing High-Performance Computingpredicted flow details as control input, especially under the smart rotor
+                                                                            resources.concept [49]. To further demonstrate the potential use of the proposed
+method in wind turbine control, the predictions of the averaged and
+                                                            Appendix A. Supplementary datainstantaneous wind speeds were examined. The results showed very
+good matches between the prediction and true values. In addition,
+                                                                     Supplementary material related to this article can be found online
+they showed that the proposed method could achieve detailed short-
+                                                                                at https://doi.org/10.1016/j.apenergy.2021.116641.
+term wind forecasting. These results are apparently also very useful
+for wind farm control and wind resource assessment. Furthermore, a
+                                                                 References
+wide range of scenarios were investigated to demonstrate the proposed
+method’s robustness, which included the LIDAR measurements with
+                                                                                            [1]  Harris  M,  Hand  M,  Wright  A.  Lidar  for  turbine  control.  Report  No.
+various levels of noise and under different LIDAR spatial/temporal           NREL/TP-500-39154, Golden, CO: National Renewable Energy Laboratory; 2006.
+resolutions, different LIDAR look directions and different turbulence        [2]  Simley E, Pao L, Kelley N, Jonkman B, Frehlich R. Lidar wind speed mea-
+levels. The results showed that the proposed method performed very            surements of evolving wind fields. In: 50th AIAA aerospace sciences meeting
+                                                                                                  including the new horizons forum and aerospace exposition. 2012, p. 656.
+well in all these scenarios.                                                                                            [3]  Schlipf D, Cheng PW, Mann  J. Model of the correlation between lidar sys-
+   By fusing LIDAR measurements and Navier–Stokes equations, the           tems and wind  turbines  for  lidar-assisted  control. J Atmos Ocean Technol
+proposed method achieved great accuracy in spatiotemporal wind pre-            2013;30(10):2233–40.
+dictions. However, we mention that its performance is still limited by        [4]  Scholbrock A, Fleming P, Schlipf D, Wright A, Johnson K, Wang N. Lidar-
+                                                                                     enhanced wind turbine control: Past, present, and future. In: 2016 American
+the underlying physical law’s ability in capturing the full dynamics of             control conference (ACC). IEEE; 2016, p. 1399–406.
+the evolving wind. For example, the 3D flow structures and the thermal        [5] Tong X, Zhao X. Power generation control of a monopile hydrostatic wind turbine
+effects are not captured by the current studies because the employed            using an ∞loop-shaping torque controller and an LPV pitch controller. IEEE
+Navier–Stokes equations are 2D. Therefore, future studies considering            Trans Control Syst Technol 2018;26(6):2165–72.
+                                                                                            [6] Shu Z, Li Q, He Y, Chan P. Observations of offshore wind characteristics by
+more accurate physical models (e.g. 3D Navier–Stokes equations) are             doppler-lidar for wind energy applications. Appl Energy 2016;169:150–63.
+needed to improve the prediction performance. In addition, the wind        [7]  Li J, Wang X, Yu XB. Use of spatio-temporal calibrated wind shear model to
+prediction is also limited by the LIDAR measurement data’s ability           improve accuracy of wind resource assessment. Appl Energy 2018;213:469–85.
+                                                                                            [8] Dunne F, Simley E, Pao L. Lidar wind speed measurement analysis and feed-
+in characterizing the essential wind information. Therefore,  it is of
+                                                                                          forward blade pitch control for load mitigation in wind turbines. Golden, CO:
+great interest to investigate the optimal data acquisition design for the            National Renewable Energy Laboratory; 2011.
+proposed method. It is expected that the data quality will increase using        [9] Yan  B,  Li Q. Coupled  on-site measurement/CFD based approach  for high-
+an optimized data acquisition design, which, in turn, will increase the             resolution wind resource assessment over complex  terrains. Energy Convers
+                                                                              Manage 2016;117:351–66.
+prediction accuracy further. Future research may also include the real-
+                                                                                      [10] Tang X-Y, Zhao S, Fan B, Peinke J, Stoevesandt B. Micro-scale wind resource
+world LIDAR measurement campaign to further validate the proposed            assessment in complex terrain based on cfd coupled measurement from multiple
+method.                                                                                        masts. Appl Energy 2019;238:806–15.
+   As the predicted spatiotemporal flow field contains much more      [11] Hand MM, Balas MJ. Blade load mitigation control design for a wind turbine
+                                                                                                operating in the path of vortices. Wind Energy Int J Prog Appl Wind Power
+information about the incoming wind than the original LIDAR mea-           Convers Technol 2007;10(4):339–55.
+surements, it is greatly useful in developing advanced strategies for      [12] Towers  P, Jones  BL.  Real-time wind  field  reconstruction from  lidar mea-
+the wind resource assessment and for the monitoring and control of            surements using a dynamic wind model and state estimation. Wind Energy
+wind turbine/farm, by using such rich flow information. This may            2016;19(1):133–50.
+                                                                                      [13]  Mercieca J, Aram P, Jones BL, Kadirkamanathan V. A spatiotemporal estimation
+include the usage of the predicted spatiotemporal data for wind power           framework for real-world lidar wind speed measurements. IEEE Trans Control
+prediction, turbine load evaluation, extreme event forecasting, main-             Syst Technol 2020;28(4):1595–602.
+tenance scheduling, etc. As the developed method is generic, another      [14] LeCun Y, Bengio Y, Hinton G. Deep learning. Nature 2015;521(7553):436–44.
+research direction is the application of the developed method in the      [15] Wang H, Li G, Wang G, Peng J, Jiang H, Liu Y. Deep learning based ensemble
+                                                                                        approach for probabilistic wind power forecasting. Appl Energy 2017;188:56–70.
+state estimation and forecasting of other systems governed by partial      [16]  Liu Y, Qin H, Zhang Z, Pei S, Jiang Z, Feng Z, et al. Probabilistic spatiotemporal
+differential equations such as wave/tide energy systems and other flow          wind speed forecasting based on a variational Bayesian deep learning model.
+configurations such as wind over complex terrains.                                Appl Energy 2020;260:114259.
+                                                                                      [17] Duan  J, Zuo H, Bai Y, Duan  J, Chang M, Chen B. Short-term wind speed
+                                                                                                      forecasting  using  recurrent  neural  networks  with  error  correction. Energy
+CRediT authorship contribution statement                                      2020;119397.
+                                                                                      [18] Zhang  J, Zhao X. A novel dynamic wind farm wake model based on deep
+                                                                                                       learning. Appl Energy 2020;277:115552.
+   Jincheng Zhang: Conceptualization, Data curation, Formal analy-      [19]  Ti Z, Deng XW, Yang H. Wake modeling of wind turbines using machine learning.
+sis, Investigation, Methodology, Project administration, Software, Vali-           Appl Energy 2020;257:114025.
+dation, Visualization, Writing - original draft. Xiaowei Zhao: Concep-      [20]  Ling J, Kurzawski A, Templeton J. Reynolds averaged turbulence modelling using
+                                                                                      deep neural networks with embedded invariance. J Fluid Mech 2016;807:155–66.
+tualization, Funding acquisition, Investigation, Methodology, Project      [21] Duraisamy K, Iaccarino G, Xiao H. Turbulence modeling in the age of data. Annu
+administration, Resources, Supervision, Writing - review & editing.              Rev Fluid Mech 2019;51:357–77.
+
+                                                                        12
+===== PAGE 13 =====
+J. Zhang and X. Zhao                                                                                                                              Applied Energy 288 (2021) 116641
+
+
+[22]  Brunton SL, Proctor JL, Kutz JN. Discovering governing equations from data      [36] Witha B, Steinfeld G, Heinemann D. High-resolution offshore wake simulations
+     by sparse identification of nonlinear dynamical systems. Proc Natl Acad Sci            with the les model palm. In: Wind energy-impact of turbulence. Springer; 2014,
+      2016;113(15):3932–7.                                                                             p. 175–81.
+[23] Rudy SH, Brunton SL, Proctor JL, Kutz JN. Data-driven discovery of partial      [37]  Martínez-Tossas LA, Churchfield MJ, Leonardi  S. Large eddy simulations of
+       differential equations. Sci Adv 2017;3(4):e1602614.                                        the flow past wind turbines: actuator line and disk modeling. Wind Energy
+[24]  Sirignano J, Spiliopoulos K. Dgm: A deep learning algorithm for solving partial            2015;18(6):1047–60.
+       differential equations. J Comput Phys 2018;375:1339–64.                           [38]  Stevens RJ, Martínez-Tossas LA, Meneveau C. Comparison of wind farm large
+[25] Zhu  Y, Zabaras N. Bayesian deep  convolutional encoder–decoder networks           eddy simulations using actuator disk and actuator line models with wind tunnel
+       for  surrogate  modeling  and  uncertainty  quantification.  J  Comput  Phys            experiments. Renew Energy 2018;116:470–8.
+      2018;366:415–47.                                                                [39] Yang X, Milliren C, Kistner M, Hogg C, Marr J, Shen L, et al. High-fidelity sim-
+[26] Zhu Y, Zabaras N, Koutsourelakis P-S, Perdikaris P. Physics-constrained deep             ulations and field measurements for characterizing wind fields in a utility-scale
+       learning for high-dimensional surrogate modeling and uncertainty quantification          wind farm. Appl Energy 2021;281:116115.
+      without labeled data. J Comput Phys 2019;394:56–81.                             [40] Howland MF,  Dabiri JO. Wind farm modeling with  interpretable  physics-
+[27]  Raissi M, Perdikaris P, Karniadakis GE. Physics-informed neural networks: A deep           informed machine learning. Energies 2019;12(14):2716.
+       learning framework for solving forward and inverse problems involving nonlinear      [41]  Churchfield M, Lee S. Nwtc design codes-sowfa. 2012, URL: http://wind.nrel.
+       partial differential equations. J Comput Phys 2019;378:686–707.                         gov/designcodes/simulators/SOWFA.
+[28]  Baydin AG, Pearlmutter BA, Radul AA, Siskind JM. Automatic differentiation in      [42]  Churchfield MJ, Lee S, Michalakes J, Moriarty PJ. A numerical study of the
+      machine learning: a survey. J Mach Learn Res 2017;18(1):5595–637.                          effects of atmospheric and wake turbulence on wind turbine dynamics. J Turbul
+[29] Yang Y, Perdikaris P. Adversarial uncertainty quantification in physics-informed            2012;(13):N14.
+      neural networks. J Comput Phys 2019;394:136–52.                                 [43]  Fleming P, Gebraad PM, Lee S, van Wingerden J-W, Johnson K, Churchfield M, et
+[30]  Jagtap AD, Kawaguchi K, Karniadakis GE. Adaptive activation functions acceler-                al. Simulation comparison of wake mitigation control strategies for a two-turbine
+       ate convergence in deep and physics-informed neural networks. J Comput Phys             case. Wind Energy 2015;18(12):2135–43.
+      2020;404:109136.                                                               [44]  Taylor GI. The spectrum of turbulence. Proc R Soc Lond A 1938;164(919):476–
+[31] Meng X, Karniadakis GE. A composite neural network that learns from multi-            90.
+        fidelity data: Application to function approximation and inverse pde problems.      [45]  Batchelor GK. An introduction to fluid dynamics. Cambridge University Press;
+      J Comput Phys 2020;401:109020.                                                     2000.
+[32] Yang L, Meng X, Karniadakis GE. B-pinns: Bayesian physics-informed neural      [46] Kingma DP, Ba J. Adam: A method for stochastic optimization. 2014, arXiv
+      networks for forward and inverse pde problems with noisy data. 2020, arXiv             preprint arXiv:1412.6980.
+       preprint arXiv:2003.06097.                                                       [47]  Medici D, Ivanell S, Dahlberg J-Å, Alfredsson PH. The upstream flow of a wind
+[33]  Raissi M, Wang  Z,  Triantafyllou MS,  Karniadakis  GE. Deep  learning  of             turbine: blockage effect. Wind Energy 2011;14(5):691–7.
+      vortex-induced vibrations. J Fluid Mech 2019;861:119–37.                          [48] Zhao F, Wang T, Gao X, Sun H, Yang H, Han Z, et al. Experimental study on
+[34] Mao  Z, Jagtap AD,  Karniadakis GE.  Physics-informed  neural networks  for          wake interactions and performance of the turbines with different rotor-diameters
+      high-speed flows. Comput Methods Appl Mech Engrg 2020;360:112789.                     in adjacent area of large-scale wind farm. Energy 2020;117416.
+[35]  Raissi M, Yazdani A, Karniadakis GE. Hidden fluid mechanics: Learning velocity      [49]  Barlas TK, van Kuik GA. Review of state of the art in smart rotor control research
+     and pressure fields from flow visualizations. Science 2020;367(6481):1026–30.               for wind turbines. Prog Aerosp Sci 2010;46(1):1–27.
+
+
+
+
+
+                                                                        13
