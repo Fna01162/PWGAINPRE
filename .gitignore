@@ -1,7 +1,10 @@
 # 数据与模型权重（体积过大，GitHub 单文件限制 100MB，不纳入版本控制）
 dataset/
 outputs_single_v/
-compare_baselines/
+
+# 对比基线目录：只推代码，不推训练权重（.pth）
+compare_baselines/*.pth
+compare_baselines/**/*.pth
 
 # 论文素材与本地中间产物（与模型代码无关）
 _paper_crops/

@@ -1,0 +1,2 @@
+﻿epoch,d_loss,g_adv,g_rec,val_hole_MAE
+1,0.0,0.0,0.0,0.5129094692324557
