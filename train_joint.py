@@ -26,6 +26,7 @@ from tqdm import tqdm
 from config import Config
 from untils.data import (
     Normalizer, make_obs_rel,
+    generate_pure_structural_missing_mask,
     PHYS_CHANNELS, TARGET_CHANNEL,
 )
 from untils.losses import (
@@ -39,6 +40,38 @@ from predictor import WindFieldPredictor, init_predictor_weights
 
 BAD_RAYS = [73, 74, 75]
 CHANNEL_NAMES = ["V", "CNR", "SW", "Skew"]
+
+
+def generate_contextual_cue(x, effective_mask, target_t, target_channel=0):
+    """生成上下文线索：从有效时间步中找到最近的有效值作为提示。"""
+    B, C, T, H, W = x.shape
+    v = x[:, target_channel:target_channel + 1]
+    if effective_mask.dim() == 4:
+        effective_mask = effective_mask.unsqueeze(1)
+    mask_v = effective_mask[:, target_channel:target_channel + 1]
+    ti = torch.arange(T, device=x.device, dtype=torch.float32)
+    dist = torch.abs(ti - float(target_t)).view(1, T, 1, 1).expand(B, T, H, W).clone()
+    valid = mask_v[:, 0] > 0.5
+    dist[~valid] = float("inf")
+    nt = torch.argmin(dist, dim=1)
+    md = torch.amin(dist, dim=1)
+    nv = torch.gather(v[:, 0], 1, nt.unsqueeze(1))
+    hc = torch.isfinite(md)
+    return torch.where(hc.unsqueeze(1), nv, torch.zeros_like(nv))
+
+
+def build_contextual_fusion(x_bar, effective_mask, cue, z, noise_scale=0.1):
+    """构建上下文融合输入：观测区保留原值，缺失区用上下文线索+噪声填充。"""
+    B, C, T, H, W = x_bar.shape
+    m = repeat_mask(effective_mask, C)
+    xb = x_bar.clone()
+    mv = m[:, 0:1]
+    cue5 = cue.unsqueeze(2).expand(-1, -1, T, -1, -1)
+    zv = z[:, 0:1]
+    xb[:, 0:1] = mv * x_bar[:, 0:1] + (1 - mv) * cue5 + (1 - mv) * zv * noise_scale
+    if C > 1:
+        xb[:, 1:] = m[:, 1:] * x_bar[:, 1:] + (1 - m[:, 1:]) * z[:, 1:] * noise_scale
+    return xb
 
 
 def set_seed(seed):
@@ -238,7 +271,6 @@ def train_one_epoch(G, D, R, P, loader, optim_G, optim_D, optim_P, cfg, device):
 
             z = torch.randn_like(xin)
 
-            from untils.losses import generate_contextual_cue, build_contextual_fusion
             cue = generate_contextual_cue(xin, min_, t, target_channel=0)
             xb = build_contextual_fusion(xin, min_, cue, z, cfg.noise_scale)
 
@@ -401,7 +433,6 @@ def validate(G, D, R, P, loader, cfg, device):
             min_[:, 0] = given
 
             z = torch.randn_like(xin)
-            from untils.losses import generate_contextual_cue, build_contextual_fusion
             cue = generate_contextual_cue(xin, min_, t, target_channel=0)
             xb = build_contextual_fusion(xin, min_, cue, z, cfg.noise_scale)
 
@@ -508,7 +539,7 @@ def main():
 
         record = {"epoch": epoch}
         record.update({f"train_{k}": v for k, v in train_metrics.items()})
-        record.update({f"val_{k}": v for k, val_metrics.items()})
+        record.update({f"val_{k}": v for k, v in val_metrics.items()})
         history.append(record)
 
         print(f"\n  [Train] pred_MAE={train_metrics.get('pred_MAE', 0):.4f}")

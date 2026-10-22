@@ -109,17 +109,17 @@ class Config:
         self.pred_num_layers = 2
         self.pred_kernel_size = 3
 
-        # ──────────── 联合预测训练参数 ────────────
-        self.joint_pred_exp_name = f"joint_pred_Tin{self.input_steps}_Tout{self.pred_steps}_lp{self.lambda_pred}"
-        self.joint_pred_output_dir = f"outputs_single_v/outputs_{self.joint_pred_exp_name}"
-        self.joint_pred_model_path = f"{self.joint_pred_output_dir}/joint_best.pth"
-
         # ──────────── 联合训练参数 ────────────
         self.joint_training = False
         self.lambda_pred = 0.1
         self.lr_p = 2e-4
         self.freeze_g_epochs = 0
         self.pred_weight_decay = 0.0
+
+        # ──────────── 联合预测训练参数 ────────────
+        self.joint_pred_exp_name = f"joint_pred_Tin{self.input_steps}_Tout{self.pred_steps}_lp{self.lambda_pred}"
+        self.joint_pred_output_dir = f"outputs_single_v/outputs_{self.joint_pred_exp_name}"
+        self.joint_pred_model_path = f"{self.joint_pred_output_dir}/joint_best.pth"
 
         # ──────────── 径向量程扩展参数 ────────────
         self.near_end_gate = 68
