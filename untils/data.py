@@ -56,28 +56,37 @@ def _finite_mask(x):
     return np.isfinite(x)
 
 
-def make_obs_rel(arr,phys_channels=PHYS_CHANNELS):
-    x=np.asarray(arr)
-    if x.ndim!=4:
+def make_obs_rel(arr, phys_channels=PHYS_CHANNELS):
+    """
+    [修复掩码丢失]
+    从雷达张量中提取观测掩码(obs)和可靠性掩码(rel)。
+    必须在截断特征通道之前传入完整的 arr (9通道)，否则无法读取通道7和8。
+    """
+    x = np.asarray(arr)
+    if x.ndim != 4:
         raise ValueError(f"make_obs_rel输入必须为[T,H,W,C]，当前shape={x.shape}")
-    T,H,W,C=x.shape
-    if C<phys_channels:
-        raise ValueError(f"数据通道数不足：C={C}，phys_channels={phys_channels}")
-    finite=np.isfinite(x[...,:phys_channels])
-    phys_ok=np.all(finite,axis=-1)
-    if C>=9:
+    T, H, W, C = x.shape
+
+    # 获取物理通道的有限值状态
+    finite = np.isfinite(x[..., :phys_channels])
+    phys_ok = np.all(finite, axis=-1)
+
+    # 强制检查：必须输入包含掩码的原始 9 通道数据
+    if C >= 9:
         # AGENTS.md：通道7=观测掩码(1=有值)，通道8=可靠掩码(1=可靠)
-        # 坏射线ch7=0但物理存0.0(有限)，若不看掩码会被误判为有观测→输出透传0
-        mask_obs=x[...,7]>0.5
-        mask_rel=x[...,8]>0.5
-        obs=(mask_obs&phys_ok).astype(np.float32)
-        rel=(mask_rel&phys_ok).astype(np.float32)
+        mask_obs = x[..., 7] > 0.5
+        mask_rel = x[..., 8] > 0.5
+        obs = (mask_obs & phys_ok).astype(np.float32)
+        rel = (mask_rel & phys_ok).astype(np.float32)
     else:
-        obs=phys_ok.astype(np.float32)
-        rel=phys_ok.astype(np.float32)
+        print("[Warning] 输入数据通道数不足 9 个，无法读取原生掩码！退化为有限值推断。")
+        obs = phys_ok.astype(np.float32)
+        rel = phys_ok.astype(np.float32)
+
     for c in range(phys_channels):
-        rel[~np.isfinite(x[...,c])]=0.0
-    return obs,rel
+        rel[~np.isfinite(x[..., c])] = 0.0
+
+    return obs, rel
 
 
 def random_wrap_interval(start,length,width=ORI_W):
