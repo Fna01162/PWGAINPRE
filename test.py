@@ -137,15 +137,15 @@ def test_main() -> None:
     # 初始化并加载模型 (Model Setup)
     # ==========================================
     G = UNetGenerator(
-        cfg.phys_channels * 2, 1, cfg.base_filter, cfg.use_cue,
-        use_nafblock=cfg.use_nafblock, use_axial_w=cfg.use_axial_w
+        cfg.phys_channels * 2, 1, cfg.base_filter, use_cue=True,
+        use_nafblock=True, use_axial_w=True
     ).to(device)
 
     P = WindFieldPredictor(
         input_channels=cfg.phys_channels + 2,
-        hidden_channels=cfg.pred_hidden_channels,
-        num_layers=cfg.pred_num_layers,
-        kernel_size=cfg.pred_kernel_size,
+        hidden_channels=cfg.hidden_channels,
+        num_layers=cfg.num_layers,
+        kernel_size=3,
         pred_steps=cfg.pred_steps
     ).to(device)
 

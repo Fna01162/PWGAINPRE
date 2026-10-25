@@ -295,7 +295,7 @@ class Normalizer:
             v=v[np.isfinite(v)].astype(np.float64)
             if len(v)==0:raise ValueError(f"通道{c}没有有效观测")
             if self.method=="minmax":
-                lo,hi=np.percentile(v,[100-self.clip_percentile,self.clip_percentile])
+                lo,hi=np.percentile(v,self.clip_percentile)
                 if hi<=lo:hi=lo+1e-6
                 self.lo[c],self.hi[c]=lo,hi
             else:
@@ -618,3 +618,14 @@ class RangeExtensionSequenceDataset(torch.utils.data.Dataset):
             torch.from_numpy(y_far),
             torch.from_numpy(far_valid),
         )
+
+
+def repeat_mask(m, channels):
+    if m.dim() == 4:
+        m = m.unsqueeze(1)
+    return m.repeat(1, channels, 1, 1, 1) if m.shape[1] == 1 else m
+
+
+def build_generator_inputs(x_bar, m):
+    m = repeat_mask(m, x_bar.shape[1])
+    return x_bar, m

@@ -66,7 +66,7 @@ def build_dataset(path,norm,cfg):
     return MultichannelClipDataset(path,normalizer=norm,time_steps=cfg.time_steps,phys_channels=cfg.phys_channels)
 
 def build_generator(cfg):
-    return UNetGenerator(in_channels=8,out_channels=1,base_filter=cfg.base_filter,use_cue=cfg.use_cue,use_nafblock=cfg.use_nafblock,use_volformer=cfg.use_volformer,use_axial_w=cfg.use_axial_w,axial_num_pairs=cfg.axial_num_pairs,axial_num_heads=cfg.axial_num_heads)
+    return UNetGenerator(in_channels=8,out_channels=1,base_filter=cfg.base_filter,use_cue=getattr(cfg,'use_cue',True),use_nafblock=getattr(cfg,'use_nafblock',True),use_volformer=getattr(cfg,'use_volformer',False),use_axial_w=getattr(cfg,'use_axial_w',True),axial_num_pairs=getattr(cfg,'axial_num_pairs',4),axial_num_heads=getattr(cfg,'axial_num_heads',4))
 
 def build_refiner(cfg):
     if not getattr(cfg,"use_refiner",False):return None
@@ -210,7 +210,7 @@ def main():
     try:print_model_stats(G,D,R) if R is not None else print_model_stats(G,D)
     except Exception:pass
     gp=list(G.parameters())+(list(R.parameters()) if R is not None else [])
-    optim_G=torch.optim.Adam(gp,lr=cfg.lr_g,betas=cfg.betas);optim_D=torch.optim.Adam(D.parameters(),lr=cfg.lr_d,betas=cfg.betas)
+    optim_G=torch.optim.Adam(gp,lr=getattr(cfg,'lr_g',getattr(cfg,'lr',2e-4)),betas=cfg.betas);optim_D=torch.optim.Adam(D.parameters(),lr=getattr(cfg,'lr_d',getattr(cfg,'lr',2e-4)),betas=cfg.betas)
     schG=torch.optim.lr_scheduler.ReduceLROnPlateau(optim_G,mode="min",patience=5,factor=.5,min_lr=1e-6);schD=torch.optim.lr_scheduler.ReduceLROnPlateau(optim_D,mode="min",patience=5,factor=.5,min_lr=1e-6)
     best=float("inf");pat=0;history=[]
     for epoch in range(1,cfg.epochs+1):
