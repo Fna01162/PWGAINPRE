@@ -8,7 +8,7 @@ from config import Config
 from untils.data import SlidingWindowDataset, build_generator_inputs
 from model import UNetGenerator
 from predictor import WindFieldPredictor
-from untils.losses import masked_prediction_loss
+from untils.losses import masked_prediction_loss, compute_prediction_metrics
 
 
 def assemble_predictor_input(
@@ -55,9 +55,9 @@ def evaluate_prediction(
         dataloader: torch.utils.data.DataLoader,
         cfg: Config,
         device: torch.device
-) -> float:
+) -> dict:
     """
-    在测试集上评估预测链路的整体性能。
+    在测试集上评估预测链路的整体性能（C5: 多指标版本）。
 
     Args:
         model_G: 训练好的生成器/补全网络
@@ -67,19 +67,22 @@ def evaluate_prediction(
         device: 计算设备
 
     Returns:
-        float: 测试集上的平均 MAE (归一化尺度)
+        dict: 包含 MAE, RMSE, Corr, SSIM 等指标的字典
     """
     model_G.eval()
     model_P.eval()
 
-    total_mae = 0.0
-    num_batches = len(dataloader)
+    all_metrics = {
+        'mae': [], 'rmse': [], 'corr': [], 'ssim': [], 'valid_ratio': []
+    }
+    total_samples = 0
 
     with torch.no_grad():
         for step, (hx, hm, hr, fx, fm, fr) in enumerate(tqdm(dataloader, desc="Evaluating")):
             # 将所有张量送入设备
             hx, hm, hr = hx.to(device), hm.to(device), hr.to(device)
             fx, fm, fr = fx.to(device), fm.to(device), fr.to(device)
+            B = hx.shape[0]
 
             # --- 1. 补全阶段 (Imputation Stage) ---
             valid_mask_h = hm * hr
@@ -87,22 +90,34 @@ def evaluate_prediction(
 
             v_completed = model_G(xb, valid_mask_h)
 
-            # [Fix M3, S3]: 剥离存在严重缺陷且未参与训练的 Refiner 分支，保持评测客观基准
+            # [Note] Refiner (ResidualRefiner) 已在 train.py 中完整训练并保存在 G_best.pth 的 'refiner' 字段中
+            # 此测试脚本为简化版本，暂未加载 Refiner；如需完整的 GAIN+Refiner 补全效果，请使用 train_joint.py
 
             # --- 2. 预测阶段 (Prediction Stage) ---
             pred_in = assemble_predictor_input(v_completed, hx, hm, hr, cfg)
             out_pred = model_P(pred_in)
 
-            # --- 3. 误差评估 (Metrics Calculation) ---
-            # 提取真实未来预测目标 V 和其有效掩码
+            # --- 3. 多指标评估 (C5: 完整指标) ---
             tgt = fx[:, 0:1, :, :, :].permute(0, 2, 1, 3, 4)
             valid_mask_f = (fm * fr)[:, 0:1, :, :, :].permute(0, 2, 1, 3, 4)
 
-            loss = masked_prediction_loss(out_pred, tgt, valid_mask_f)
-            total_mae += loss.item()
+            mae, rmse, corr, ssim_val, valid_pts, valid_ratio = compute_prediction_metrics(
+                out_pred, tgt, valid_mask_f
+            )
 
-    avg_mae = total_mae / num_batches if num_batches > 0 else 0.0
-    return avg_mae
+            all_metrics['mae'].append(mae * B)
+            all_metrics['rmse'].append(rmse * B)
+            all_metrics['corr'].append(corr * B)
+            all_metrics['ssim'].append(ssim_val * B)
+            all_metrics['valid_ratio'].append(valid_ratio * B)
+            total_samples += B
+
+    # 计算加权平均
+    avg_results = {}
+    for key in all_metrics:
+        avg_results[key] = sum(all_metrics[key]) / max(total_samples, 1)
+
+    return avg_results
 
 
 def test_main() -> None:
@@ -154,14 +169,18 @@ def test_main() -> None:
     P.load_state_dict(ckpt['predictor'])
 
     print("[Info] Starting prediction evaluation workflow...")
-    test_mae = evaluate_prediction(G, P, test_loader, cfg, device)
+    test_metrics = evaluate_prediction(G, P, test_loader, cfg, device)
 
-    print("=" * 40)
-    print(f" Test Evaluation Result")
-    print("=" * 40)
-    print(f" > Model: {cfg.exp_name}")
-    print(f" > Test MAE (Normalized): {test_mae:.4f}")
-    print("=" * 40)
+    print("=" * 70)
+    print(f" 📊 Test Evaluation Result (C5: Full Metrics)")
+    print("=" * 70)
+    print(f" > Model: {cfg.output_dir}")  # [B2] 修复：使用output_dir替代不存在的exp_name
+    print(f" > MAE:          {test_metrics['mae']:.6f}")
+    print(f" > RMSE:         {test_metrics['rmse']:.6f}")
+    print(f" > Correlation:  {test_metrics['corr']:.6f}  (↑ 越高越好)")
+    print(f" > SSIM:         {test_metrics['ssim']:.6f}  (↑ 越高越好)")
+    print(f" > Valid Pixels: {test_metrics['valid_ratio']*100:.2f}%  (D1: 有效评估区域占比)")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

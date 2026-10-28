@@ -246,7 +246,7 @@ def masked_prediction_mse_loss(pred, target, valid_mask):
 
 
 def compute_prediction_metrics(pred, target, valid_mask):
-    """计算预测的 MAE 和 RMSE（反归一化前在归一化空间计算）。
+    """计算预测的 MAE、RMSE、相关系数和 SSIM (C5: 补充指标)。
 
     参数：
         pred       : [B, Tout, 1, H, W]
@@ -254,7 +254,7 @@ def compute_prediction_metrics(pred, target, valid_mask):
         valid_mask : [B, Tout, 1, H, W]
 
     返回：
-        (mae, rmse, valid_points) 元组。
+        (mae, rmse, corr, ssim_val, valid_points) 元组。
     """
     if pred.dim() == 4:
         pred = pred.unsqueeze(2)
@@ -265,12 +265,100 @@ def compute_prediction_metrics(pred, target, valid_mask):
 
     mask = valid_mask.float()
     diff = pred - target
+
+    # MAE
     mae = ((diff.abs() * mask).sum() / mask.sum().clamp_min(1.0)).item()
+
+    # RMSE
     mse = ((diff ** 2 * mask).sum() / mask.sum().clamp_min(1.0)).item()
     rmse = mse ** 0.5
-    valid_points = mask.sum().item()
 
-    return mae, rmse, valid_points
+    # 相关系数 (Pearson Correlation Coefficient)
+    corr = _compute_correlation(pred, target, mask)
+
+    # SSIM (Structural Similarity Index)
+    ssim_val = _compute_ssim(pred, target, mask)
+
+    # 有效像素点数 (D1: 报告有效评估像素占比)
+    valid_points = mask.sum().item()
+    total_points = mask.numel()
+    valid_ratio = valid_points / max(total_points, 1)
+
+    return mae, rmse, corr, ssim_val, valid_points, valid_ratio
+
+
+def _compute_correlation(pred, target, mask):
+    """计算 Pearson 相关系数（仅在有效区域）。"""
+    mask_bool = mask > 0.5
+
+    if not mask_bool.any():
+        return 0.0
+
+    p = pred[mask_bool]
+    t = target[mask_bool]
+
+    p_mean = p.mean()
+    t_mean = t.mean()
+
+    p_centered = p - p_mean
+    t_centered = t - t_mean
+
+    numerator = (p_centered * t_centered).sum()
+    denominator = torch.sqrt((p_centered ** 2).sum() * (t_centered ** 2).sum())
+
+    if denominator < 1e-8:
+        return 0.0
+
+    corr = (numerator / denominator).item()
+    return max(min(corr, 1.0), -1.0)
+
+
+def _compute_ssim(pred, target, mask, window_size=7):
+    """计算 SSIM（简化版，仅用于空间结构相似性评估）。
+
+    改进：根据数据动态范围自动调整 C1、C2 参数，避免因数据范围不匹配导致SSIM偏低。
+    """
+    from torch.nn.functional import avg_pool2d
+
+    mask_bool = mask > 0.5
+    if not mask_bool.any():
+        return 0.0
+
+    # 根据目标值的动态范围计算 C1、C2（标准 SSIM 公式）
+    # 原始公式：C1=(K1*L)^2, C2=(K2*L)^2，其中 L 是数据动态范围
+    # K1=0.01, K2=0.03 (标准常数)
+    data_range = (target[mask_bool].max() - target[mask_bool].min()).clamp(min=1.0).item()
+    C1 = (0.01 * data_range) ** 2
+    C2 = (0.03 * data_range) ** 2
+
+    pred_flat = pred.squeeze(2)  # [B, T, H, W] -> 如果是5维
+    target_flat = target.squeeze(2)
+    mask_flat = mask.squeeze(2)
+
+    if pred_flat.dim() == 4:
+        B, T, H, W = pred_flat.shape
+        pred_flat = pred_flat.view(B * T, 1, H, W)
+        target_flat = target_flat.view(B * T, 1, H, W)
+        mask_flat = mask_flat.view(B * T, 1, H, W)
+
+    mu_pred = avg_pool2d(pred_flat, window_size, stride=1, padding=window_size//2)
+    mu_target = avg_pool2d(target_flat, window_size, stride=1, padding=window_size//2)
+
+    mu_pred_sq = mu_pred ** 2
+    mu_target_sq = mu_target ** 2
+    mu_pred_target = mu_pred * mu_target
+
+    sigma_pred_sq = avg_pool2d(pred_flat ** 2, window_size, stride=1, padding=window_size//2) - mu_pred_sq
+    sigma_target_sq = avg_pool2d(target_flat ** 2, window_size, stride=1, padding=window_size//2) - mu_target_sq
+    sigma_pred_target = avg_pool2d(pred_flat * target_flat, window_size, stride=1, padding=window_size//2) - mu_pred_target
+
+    ssim_map = ((2 * mu_pred_target + C1) * (2 * sigma_pred_target + C2)) / \
+               ((mu_pred_sq + mu_target_sq + C1) * (sigma_pred_sq + sigma_target_sq + C2))
+
+    mask_2d = (mask_flat > 0.5).float()
+    ssim_val = (ssim_map * mask_2d).sum() / mask_2d.sum().clamp_min(1.0)
+
+    return ssim_val.item()
 
 
 def extension_mae_loss(pred, target, valid_mask):

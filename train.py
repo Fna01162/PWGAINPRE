@@ -199,7 +199,7 @@ def save_history(history,out_dir):
     plt.figure(figsize=(10,6));plt.plot(ep,[h.get("train_miss_rate",0) for h in history],label="Train artificial");plt.plot(ep,[h.get("val_miss_rate",0) for h in history],label="Val artificial");plt.plot(ep,[h.get("real_missing_rate",0) for h in history],label="Real missing");plt.plot(ep,[h.get("total_missing_rate",0) for h in history],label="Total missing");plt.axhline(.06,ls="--",lw=1,label="Target 6%");plt.xlabel("Epoch");plt.ylabel("Missing Rate");plt.title("Missing Rate");plt.legend();plt.grid(alpha=.3);plt.tight_layout();plt.savefig(out_dir/"missing_rate.png",dpi=180);plt.close()
 
 def main():
-    cfg=Config();set_seed(cfg.seed);device=torch.device(cfg.device);out_dir=Path(cfg.output_dir);out_dir.mkdir(parents=True,exist_ok=True)
+    cfg=Config();set_seed(cfg.random_seed);device=torch.device(cfg.device);out_dir=Path(cfg.output_dir);out_dir.mkdir(parents=True,exist_ok=True)
     print(f"设备={device},time_steps={cfg.time_steps},batch={cfg.batch_size}");print(f"原始尺寸={ORI_H}x{ORI_W},模型尺寸={PAD_H}x{PAD_W}");print("目标：只生成V，CNR/SW/Skew作为条件输入。")
     norm=fit_normalizer(cfg.train_npy,cfg.normalize,cfg.clip_percentile,cfg.phys_channels)
     train_ds=build_dataset(cfg.train_npy,norm,cfg);val_ds=build_dataset(cfg.val_npy,norm,cfg)

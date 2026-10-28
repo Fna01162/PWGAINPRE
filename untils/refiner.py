@@ -113,8 +113,10 @@ def build_refiner_input(v_gain, x, given_mask, rel_mask, cfg, device, use_wavele
 
     parts = [v_gain]
     phys_ch = int(getattr(cfg, "phys_channels", 4))
+
     for c in range(1, phys_ch):
-        parts.append(x[:, c:c + 1, target_t])
+        x_slice = x[:, c:c + 1, target_t]
+        parts.append(x_slice)
 
     parts.extend([
         _broadcast_map(rmap, B),
@@ -125,13 +127,22 @@ def build_refiner_input(v_gain, x, given_mask, rel_mask, cfg, device, use_wavele
     given_t = given_mask[:, target_t:target_t + 1] if given_mask.ndim == 5 else given_mask
     rel_t = rel_mask[:, target_t:target_t + 1] if rel_mask.ndim == 5 else rel_mask
 
+    # [FIX] 确保掩码是单通道：如果多通道（每个物理通道一个掩码），只取目标通道（V）的掩码
+    # Refiner 只补全目标通道（target_t，默认 0 = V 速度场），所以掩码应该对齐
+    if given_t.ndim == 4 and given_t.shape[1] > 1:
+        given_t = given_t[:, target_t:target_t + 1, :, :]
+    if rel_t.ndim == 4 and rel_t.shape[1] > 1:
+        rel_t = rel_t[:, target_t:target_t + 1, :, :]
+
     parts.extend([given_t, rel_t])
 
     if use_wavelet:
         levels = int(getattr(cfg, "n_wavelet_levels", 1))
-        parts.append(wavelet_features(v_gain, levels=levels))
+        wf = wavelet_features(v_gain, levels=levels)
+        parts.append(wf)
 
     inp = torch.cat(parts, dim=1)
+
     return inp.unsqueeze(2)
 
 
@@ -179,12 +190,21 @@ def apply_refiner(R, v_gain, x, given_mask, rel_mask, valid_mask, cfg, device):
     t = getattr(cfg, "target_idx", 0)
     valid_t = valid_mask[:, t:t + 1] if valid_mask.ndim == 5 else valid_mask
     valid_t = valid_t.unsqueeze(1) if valid_t.ndim == 3 else valid_t
+    # [FIX] 处理多通道掩码情况（每个物理通道一个掩码）
+    if valid_t.ndim == 4 and valid_t.shape[1] > 1:
+        valid_t = valid_t[:, t:t + 1, :, :]
 
     given_t = given_mask[:, t:t + 1] if given_mask.ndim == 5 else given_mask
     given_t = given_t.unsqueeze(1) if given_t.ndim == 3 else given_t
+    # [FIX] 处理多通道掩码情况
+    if given_t.ndim == 4 and given_t.shape[1] > 1:
+        given_t = given_t[:, t:t + 1, :, :]
 
     rel_t = rel_mask[:, t:t + 1] if rel_mask.ndim == 5 else rel_mask
     rel_t = rel_t.unsqueeze(1) if rel_t.ndim == 3 else rel_t
+    # [FIX] 处理多通道掩码情况
+    if rel_t.ndim == 4 and rel_t.shape[1] > 1:
+        rel_t = rel_t[:, t:t + 1, :, :]
 
     known = given_t * rel_t * valid_t
     v_final = merge_v_final(v_gain, delta, known)

@@ -1,9 +1,0 @@
-﻿method,key,MAE_mean,RMSE_mean
-无补全 (直接外推),no_completion,-,-
-线性插值,linear_interp,-,-
-空间 KNN,spatial_knn,-,-
-官方 GAIN (2D),official_gain,-,-
-DSA-UNet,dsa_unet,-,-
-U-Net++ cGAN,unetpp_cgan,-,-
-本文补全 (分离训练),ours_sep,-,-
-本文完整框架 (联合训练),ours_joint,-,-
