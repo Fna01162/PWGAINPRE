@@ -40,10 +40,21 @@ BAD_RAYS = [73, 74, 75]
 # 时间窗口
 INPUT_STEPS = 10
 PRED_STEPS = 1
+# 评估口径与主项目 train.py 对齐：
+# 只遮挡窗口内最后一帧（预测前最新帧），对应 train.py 的 target_idx 语义
+TARGET_FRAME = INPUT_STEPS - 1
 
 # 遮挡率：主场景 30%，另做 10%/50% 扫描
 MAIN_RATE = 0.30
 RATES = [0.10, 0.30, 0.50]
+
+# 遮挡类型：structural = 结构楔缺失（复现 train.py _pure_structural_mask，
+# 真实场景口径）；sector = 原固定扇区（仅用于对照，已废弃为主口径）
+MASK_TYPE = "structural"
+# 结构缺失率 = 评估遮挡率（预训练 drop_prob 同值，训练=评估分布）
+DROP_PROB = MAIN_RATE
+# 深度方法输入缺失区是否 cue 填充（train.py build_contextual_fusion 评估口径）
+USE_CUE = True
 
 SEED = 42
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

@@ -108,6 +108,8 @@ def _broadcast_map(x, batch_size):
 def build_refiner_input(v_gain, x, given_mask, rel_mask, cfg, device, use_wavelet=True):
     """构造 Residual Refiner 输入。"""
     target_t = int(getattr(cfg, "target_idx", 0))
+    if x.ndim == 5:
+        target_t = min(target_t, x.shape[2] - 1)
     B = v_gain.shape[0]
     rmap, smap, cmap = build_geometry_maps(device=device, dtype=v_gain.dtype)
 
@@ -187,25 +189,23 @@ def apply_refiner(R, v_gain, x, given_mask, rel_mask, valid_mask, cfg, device):
         cfg=cfg, device=device, use_wavelet=getattr(cfg, "use_wavelet", True),
     )
 
-    t = getattr(cfg, "target_idx", 0)
-    valid_t = valid_mask[:, t:t + 1] if valid_mask.ndim == 5 else valid_mask
-    valid_t = valid_t.unsqueeze(1) if valid_t.ndim == 3 else valid_t
-    # [FIX] 处理多通道掩码情况（每个物理通道一个掩码）
-    if valid_t.ndim == 4 and valid_t.shape[1] > 1:
-        valid_t = valid_t[:, t:t + 1, :, :]
+    def _pick_mask(mask):
+        """把掩码规整为 [B,1,H,W]。
 
-    given_t = given_mask[:, t:t + 1] if given_mask.ndim == 5 else given_mask
-    given_t = given_t.unsqueeze(1) if given_t.ndim == 3 else given_t
-    # [FIX] 处理多通道掩码情况
-    if given_t.ndim == 4 and given_t.shape[1] > 1:
-        given_t = given_t[:, t:t + 1, :, :]
+        5D [B,C,T,H,W]：按 target_idx 取帧（target_idx 需先按 T 截断）；
+        4D [B,C,H,W]：已经过帧，多通道时只取 V 通道（channel 0），
+        不能再按 target_idx 切通道，否则通道数不足时会切出 0 通道。
+        """
+        if mask.ndim == 5:
+            t = int(getattr(cfg, "target_idx", 0))
+            t = min(t, mask.shape[2] - 1)
+            mask = mask[:, :, t]
+        if mask.ndim == 4 and mask.shape[1] > 1:
+            mask = mask[:, :1]
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(1)
+        return mask
 
-    rel_t = rel_mask[:, t:t + 1] if rel_mask.ndim == 5 else rel_mask
-    rel_t = rel_t.unsqueeze(1) if rel_t.ndim == 3 else rel_t
-    # [FIX] 处理多通道掩码情况
-    if rel_t.ndim == 4 and rel_t.shape[1] > 1:
-        rel_t = rel_t[:, t:t + 1, :, :]
-
-    known = given_t * rel_t * valid_t
+    known = _pick_mask(given_mask) * _pick_mask(rel_mask) * _pick_mask(valid_mask)
     v_final = merge_v_final(v_gain, delta, known)
     return v_final

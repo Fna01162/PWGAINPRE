@@ -25,13 +25,13 @@ import numpy as np
 from tqdm import tqdm
 
 from config import Config
-from untils.data import SlidingWindowDataset, build_generator_inputs
+from untils.data import SlidingWindowDataset, build_generator_inputs, crop_to, generate_pure_structural_missing_mask
 from model import UNetGenerator
 from predictor import WindFieldPredictor
 from untils.losses import compute_prediction_metrics
-from untils.data import _continuous_ray_mask, _calibrate_missing
 from untils.refiner import ResidualRefiner, apply_refiner
 from untils.wavelet import wavelet_feature_channels
+from train import make_training_cue, build_contextual_fusion
 
 
 def azimuth_linear_interpolation(v_in, missing_mask):
@@ -103,20 +103,21 @@ def azimuth_linear_interpolation(v_in, missing_mask):
 
 
 def generate_fixed_test_mask(test_loader, cfg, device):
-    """A4: 预生成固定测试mask，确保可复现"""
+    """[口径对齐 train.py] 结构楔固定测试mask（只遮 target 帧），确保可复现"""
     all_masks = []
     for hx, hm, hr, fx, fm, fr in test_loader:
         hx, hm, hr = hx.to(device), hm.to(device), hr.to(device)
         B, C, Tin, H, W = hx.shape
+        target_t = Tin - 1
         valid_mask_h = hm * hr
 
         batch_masks = []
         for b in range(B):
-            allowed = valid_mask_h[b, 0, 0].cpu().numpy()
-            n_rays = max(1, int(cfg.missing_rate * W))
-            raw_mask = _continuous_ray_mask(H, W, n_rays)
-            calibrated_mask = _calibrate_missing(raw_mask, cfg.missing_rate, allowed > 0.5)
-            batch_masks.append(calibrated_mask)
+            ve = valid_mask_h[b, 0:1, target_t]  # [1,H,W]
+            art_t, _r = generate_pure_structural_missing_mask(
+                1, H, W, device, cfg.drop_prob, cfg=cfg, valid_mask=ve)
+            art_t = (art_t * ve)[0, 0].cpu().numpy()  # [H,W] target 帧遮挡
+            batch_masks.append(art_t)
 
         batch_masks_np = np.stack(batch_masks)
         all_masks.append(batch_masks_np)
@@ -158,14 +159,30 @@ def evaluate_on_test(G, P, R, refiner_phys_channels, refiner_n_wavelet_levels, t
 
             B, C, Tin, H, W = hx.shape
 
-            # 使用预生成的固定mask
-            art_mask = fixed_masks[mask_idx:mask_idx+B].to(device)
-            art_mask = art_mask.unsqueeze(1).unsqueeze(1).expand(-1, C, Tin, -1, -1)
+            # 使用预生成的固定mask（只遮 target 帧）
+            target_t = Tin - 1
+            art_mask = fixed_masks[mask_idx:mask_idx+B].to(device)  # [B,H,W]
+            art_mask = art_mask.unsqueeze(1).unsqueeze(1)  # [B,1,1,H,W]
+            art_full = torch.zeros(B, C, Tin, H, W, device=device)
+            art_full[:, :, target_t:target_t + 1] = art_mask
+            art_mask = art_full
             mask_idx += B
 
             valid_mask_h = hm * hr
-            m_t = valid_mask_h * (1 - art_mask)
-            xin = hx * m_t
+            # 只对 target 帧打人工缺失 + cue 填充（评估口径：无噪声）
+            given_all = hm * (1 - art_mask)
+            xin = hx.clone()
+            xin[:, :, target_t:target_t + 1] = (
+                hx[:, :, target_t:target_t + 1]
+                * given_all[:, :, target_t:target_t + 1])
+            min_ = hm.clone()
+            min_[:, :, target_t:target_t + 1] = (
+                given_all[:, :, target_t:target_t + 1])
+            z = torch.zeros_like(xin)
+            cue, em = make_training_cue(xin, min_, hr, hm, target_t)
+            if not getattr(cfg, "use_cue", True):
+                cue = torch.zeros(B, 1, H, W, device=device, dtype=hx.dtype)
+            xb = build_contextual_fusion(xin, em, cue, z, 0.0)
 
             # 根据链路模式补全
             if is_oracle:
@@ -175,13 +192,13 @@ def evaluate_on_test(G, P, R, refiner_phys_channels, refiner_n_wavelet_levels, t
                 v_completed = xin[:, 0:1, :, :, :]
             elif chain_mode == "B":
                 # [FIX] 使用统一的方位向线性插值函数
-                missing_mask_b = (m_t[:, 0:1, :, :, :] < 0.5)
+                missing_mask_b = (given_all[:, 0:1, :, :, :] < 0.5)
                 v_completed = azimuth_linear_interpolation(xin[:, 0:1, :, :, :], missing_mask_b)
             else:
-                xb, eb = build_generator_inputs(xin, m_t)
-                v_completed = G(xb.to(device), m_t.to(device))
+                # C/D链路：GAIN 整帧补全（与预训练 time_steps=10 一致）
+                v_completed = G(xb, em)  # [B, 1, Tin, H, W]
 
-                # [FIX] 测试时也应用Refiner做残差修正（逐帧）
+                # [口径对齐] Refiner 只 refine target 帧（其余帧无人工缺失）
                 if R is not None:
                     # [向下兼容] 准备 Refiner 专用的 cfg（可能需要降维/调整小波层数）
                     needs_override = (refiner_phys_channels != cfg.phys_channels or
@@ -193,23 +210,22 @@ def evaluate_on_test(G, P, R, refiner_phys_channels, refiner_n_wavelet_levels, t
                     else:
                         refiner_cfg = cfg
 
-                    v_refined_list = []
-                    for t in range(Tin):
-                        v_t = v_completed[:, :, t, :, :]  # [B, 1, H, W]
-                        x_t = hx[:, :, t:t+1, :, :]  # [FIX] 5D保持时间维，build_refiner_input需要
-                        # 切片到 Refiner 能处理的通道数
-                        if x_t.shape[1] > refiner_phys_channels:
-                            x_t = x_t[:, :refiner_phys_channels, :, :]
-                        given_t = hm[:, :, t, :, :]  # [B, 1, H, W]
-                        rel_t = hr[:, :, t, :, :]  # [B, 1, H, W]
-                        valid_t = valid_mask_h[:, :, t, :, :]  # [B, 1, H, W]
+                    v_t = v_completed[:, :, target_t, :, :]  # [B, 1, H, W]
+                    x_t = hx[:, :, target_t:target_t + 1, :, :]  # 5D保持时间维
+                    if x_t.shape[1] > refiner_phys_channels:
+                        x_t = x_t[:, :refiner_phys_channels, :, :]
+                    given_t = hm[:, :, target_t, :, :]
+                    rel_t = hr[:, :, target_t, :, :]
+                    valid_t = valid_mask_h[:, :, target_t, :, :]
 
-                        with torch.no_grad():
-                            # 使用 refiner_cfg（phys_channels 已调整）
-                            v_refined_t = apply_refiner(R, v_t, x_t, given_t, rel_t, valid_t, refiner_cfg, device)
-                        v_refined_list.append(v_refined_t)
-
-                    v_completed = torch.stack(v_refined_list, dim=2)  # [B, 1, Tin, H, W]
+                    with torch.no_grad():
+                        v_refined_t = apply_refiner(
+                            R, v_t, x_t, given_t, rel_t, valid_t,
+                            refiner_cfg, device)
+                    v_completed = torch.cat([
+                        v_completed[:, :, :target_t],
+                        v_refined_t.unsqueeze(2),
+                        v_completed[:, :, target_t + 1:]], dim=2)
 
             # 构建预测器输入
             features = hx[:, 1:cfg.phys_channels, :, :, :]

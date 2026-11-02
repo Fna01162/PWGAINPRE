@@ -1,0 +1,27 @@
+﻿
+============================================================
+Joint Model Testing Configuration:
+  Device: cpu
+  Chain Mode: D
+  Output Dir: D:\windnet\GAIN\PWGAIN_PRE\outputs_single_v\joint_pred_Tin10_Tout1_lp0.1_D
+============================================================
+
+📦 Loading checkpoint from: D:\windnet\GAIN\PWGAIN_PRE\outputs_single_v\joint_pred_Tin10_Tout1_lp0.1_D\joint_best.pth
+⚠️  Windows 系统检测到，num_workers 从 4 强制设为 0（避免 DLL 加载错误）
+✅ Test dataset loaded: 69 samples
+✅ G, P loaded
+📐 Inferring Refiner from checkpoint: in_channels=16, base_filter=16
+✅ Refiner loaded: 38 tensors, phys_channels=4, wavelet_levels=2
+
+🧪 Evaluating on test set (Chain: D)...
+🔧 Pre-generating fixed test masks for reproducibility... 
+python.exe : 
+所在位置 行:1 字符: 44
++ ... WGAIN_PRE"; & "D:\software\Anaconda\python.exe" test_joint.py D --no- ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  [tmp] completion MAE(norm)=0.5248
+Testing [D]:   0%|          | 0/18 [00:00<?, ?it/s]
+  [tmp] completion MAE(norm)=0.3655

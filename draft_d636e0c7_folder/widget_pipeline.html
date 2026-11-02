@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="use-iframe" content="true">
+<meta name="html-box-height-mode" content="auto">
+<meta name="description" content="分离训练与端到端联合训练两种补全预测范式的流程对比示意">
+<title>端到端联合训练与分离训练范式对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #1F2329; background: #fff; }
+  .wrap { width: 100%; max-width: 820px; padding: 6px 2px; }
+  .title { font-size: 16px; font-weight: 700; color: #1A2B4A; margin-bottom: 2px; }
+  .sub { font-size: 13px; color: #646A73; margin-bottom: 10px; }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lane { border: 1px solid #DEE3E8; border-radius: 8px; padding: 10px; background: #F8F9FB; }
+  .lane h3 { font-size: 14px; color: #1A2B4A; margin-bottom: 8px; }
+  .box { background: #fff; border: 1px solid #DEE3E8; border-radius: 6px; padding: 6px 8px; font-size: 13px; text-align: center; }
+  .box b { color: #1A2B4A; }
+  .loss { font-size: 12px; color: #646A73; text-align: center; padding: 3px 0 0; line-height: 1.4; }
+  .arrow { text-align: center; color: #758092; font-size: 13px; line-height: 1.5; }
+  .arrow.red { color: #B5502A; font-weight: 700; }
+  .tag { display: inline-block; font-size: 12px; border-radius: 9px; padding: 0 7px; margin-left: 4px; vertical-align: 1px; }
+  .tag.frozen { background: #DDE0E4; color: #1F2329; }
+  .tag.joint { background: #F5E3DA; color: #B5502A; }
+  .note { font-size: 12px; color: #646A73; margin-top: 8px; line-height: 1.6; border-top: 1px dashed #DEE3E8; padding-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">分离训练（Ours-Frozen）与端到端联合训练（Ours）范式对比</div>
+  <div class="sub">两种范式下损失函数与梯度回传路径的差别（示意，对应论文表4-Y最后两行）</div>
+  <div class="lanes">
+    <div class="lane">
+      <h3>分离训练 · Ours-Frozen <span class="tag frozen">两阶段独立</span></h3>
+      <div class="box">带缺 PPI 输入</div>
+      <div class="arrow">↓</div>
+      <div class="box"><b>GAIN + Refiner</b><br>仅补全损失 L<sub>c</sub>（MAE/SSIM）</div>
+      <div class="arrow">↓ 补全结果冻结</div>
+      <div class="box"><b>ConvLSTM 预测</b><br>仅预测损失 L<sub>p</sub></div>
+      <div class="arrow">↓</div>
+      <div class="box">预测风场输出</div>
+      <div class="loss">梯度不贯通：补全网络不感知下游预测任务</div>
+    </div>
+    <div class="lane">
+      <h3>端到端联合训练 · Ours <span class="tag joint">梯度贯通</span></h3>
+      <div class="box">带缺 PPI 输入</div>
+      <div class="arrow">↓</div>
+      <div class="box"><b>GAIN + Refiner</b><br>总损失 L = L<sub>c</sub> + λ·L<sub>p</sub></div>
+      <div class="arrow">↓ 补全场</div>
+      <div class="box"><b>ConvLSTM 预测</b><br>预测损失 L<sub>p</sub></div>
+      <div class="arrow red">↺ 预测梯度回传贯通补全网络</div>
+      <div class="box">预测风场输出</div>
+      <div class="loss">补全网络按"利于未来动力学演化"的方向优化</div>
+    </div>
+  </div>
+  <div class="note">结论：联合训练在表4-X的局部重构误差可能略高于分离训练，但表4-Y预测误差更低——预测损失反向梯度促使补全网络恢复有利于动力演化的全局物理特征。此图是4.2节叙事话术的直观载体，建议单独成图。</div>
+</div>
+</body>
+</html>

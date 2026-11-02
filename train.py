@@ -106,11 +106,14 @@ def train_one_epoch(G,D,R,loader,optim_G,optim_D,cfg,device):
         cue,em=make_training_cue(xin,min_,r,valid,t)
         if not cfg.use_cue:cue=torch.zeros(B,1,H,W,device=device,dtype=x.dtype)
         xb=build_contextual_fusion(xin,em,cue,z,cfg.noise_scale);gx,gm=build_generator_inputs(xb,em)
-        vf=G(gx,gm);vfake=vf[:,0,t:t+1];vtrue=x[:,0,t:t+1];gv=vgiven
+        vtrue=x[:,0,t:t+1];gv=vgiven
+        with torch.no_grad():
+            vf=G(gx,gm);vfake=vf[:,0,t:t+1]
         vhat=vtrue*gv+vfake*(1-gv);hint=generate_hint(gv,cfg.hint_rate);dl=D(vhat.detach(),hint);d_loss=discriminator_loss(dl,gv,vval)
         optim_D.zero_grad(set_to_none=True);d_loss.backward()
         if cfg.grad_clip>0:torch.nn.utils.clip_grad_norm_(D.parameters(),cfg.grad_clip)
         optim_D.step()
+        del vf,vfake,vhat
         vf=G(gx,gm);vfake=vf[:,0,t:t+1];vhat=vtrue*gv+vfake*(1-gv);dlg=D(vhat,hint)
         g_adv=generator_adv_loss(dlg,art,vval);g_rec=reconstruction_loss(vfake,vtrue,art,vrel)
         g_tv=tv_loss(vfake,art,vval) if cfg.tv_weight>0 else x.new_zeros(())
@@ -199,7 +202,8 @@ def save_history(history,out_dir):
     plt.figure(figsize=(10,6));plt.plot(ep,[h.get("train_miss_rate",0) for h in history],label="Train artificial");plt.plot(ep,[h.get("val_miss_rate",0) for h in history],label="Val artificial");plt.plot(ep,[h.get("real_missing_rate",0) for h in history],label="Real missing");plt.plot(ep,[h.get("total_missing_rate",0) for h in history],label="Total missing");plt.axhline(.06,ls="--",lw=1,label="Target 6%");plt.xlabel("Epoch");plt.ylabel("Missing Rate");plt.title("Missing Rate");plt.legend();plt.grid(alpha=.3);plt.tight_layout();plt.savefig(out_dir/"missing_rate.png",dpi=180);plt.close()
 
 def main():
-    cfg=Config();set_seed(cfg.random_seed);device=torch.device(cfg.device);out_dir=Path(cfg.output_dir);out_dir.mkdir(parents=True,exist_ok=True)
+    cfg=Config();set_seed(cfg.random_seed);device=torch.device(cfg.device)
+    out_dir=Path(getattr(cfg,"pretrain_output_dir",cfg.output_dir));out_dir.mkdir(parents=True,exist_ok=True)
     print(f"设备={device},time_steps={cfg.time_steps},batch={cfg.batch_size}");print(f"原始尺寸={ORI_H}x{ORI_W},模型尺寸={PAD_H}x{PAD_W}");print("目标：只生成V，CNR/SW/Skew作为条件输入。")
     norm=fit_normalizer(cfg.train_npy,cfg.normalize,cfg.clip_percentile,cfg.phys_channels)
     train_ds=build_dataset(cfg.train_npy,norm,cfg);val_ds=build_dataset(cfg.val_npy,norm,cfg)
@@ -221,12 +225,12 @@ def main():
         print(f"  V MAE={mae:.6f} RMSE={rmse:.6f} 人工缺失率={vmr:.4f}")
         ckpt={"model":G.state_dict(),"normalizer":norm.__dict__,"cfg":cfg.to_dict(),"epoch":epoch,"V_MAE":mae,"V_RMSE":rmse}
         if R is not None:ckpt["refiner"]=R.state_dict()
-        torch.save(ckpt,out_dir/"G_last.pth")
         if mae<best:
             best=mae;pat=0;torch.save(ckpt,out_dir/"G_best.pth");print(f"  保存最佳模型，V MAE={best:.6f}")
         else:pat+=1
         if epoch%cfg.save_interval==0:torch.save(ckpt,out_dir/f"G_epoch_{epoch:03d}.pth")
         if pat>=cfg.patience:print(f"早停：epoch={epoch},best MAE={best:.6f}");break
+    torch.save(ckpt,out_dir/"G_last.pth")
     save_history(history,out_dir)
     try:
         fixed=fixed_ray_surrogate(G,R,cfg.val_npy,norm,cfg,device,BAD_RAYS)

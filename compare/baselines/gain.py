@@ -32,7 +32,8 @@ def build_g():
 
 def _win_tensors(win, device):
     mobs = win["valid"] * (1.0 - win["art"])
-    xb = np.transpose(win["x"], (3, 0, 1, 2))
+    # 深度方法输入统一用 cue 填充版本（train.py build_contextual_fusion 口径）
+    xb = np.transpose(win["x_cue"], (3, 0, 1, 2))
     m4 = np.repeat(mobs[None], cfg.PHYS_CHANNELS, axis=0)
     xb = pad_to(xb)
     m4 = pad_to(m4)

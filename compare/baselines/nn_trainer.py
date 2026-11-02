@@ -43,7 +43,7 @@ def _extract_patch(win, r, c, p, multi_channel=False):
         def chan_first(a):
             return np.transpose(a, (0, 3, 1, 2)).reshape(t, -1)
 
-        x = chan_first(win["x"][:, r:r + p, c:c + p, :])
+        x = chan_first(win["x_cue"][:, r:r + p, c:c + p, :])
         clean = chan_first(win["clean"][:, r:r + p, c:c + p, :])
         mfull = np.repeat(m[:, None], c_channels, axis=1).reshape(t, -1)
         artfull = np.repeat(art[:, None], c_channels, axis=1).reshape(t, -1)
@@ -158,8 +158,8 @@ def train_grid(name, windows, epochs, device=cfg.DEVICE):
             for i in idxs:
                 win = windows[i]
                 mobs = win["valid"] * (1.0 - win["art"])
-                # 4 个物理通道（V 为补全目标，CNR/SW/Skew 为条件）
-                xt = np.transpose(win["x"], (0, 3, 1, 2))  # [T,C,H,W]
+                # 4 个物理通道（V 为补全目标，CNR/SW/Skew 为条件）；输入用 cue 填充版
+                xt = np.transpose(win["x_cue"], (0, 3, 1, 2))  # [T,C,H,W]
                 xs.append(_pad_seq(xt))
                 ms.append(_pad_seq(mobs))
                 tvs.append(_pad_seq(win["clean"][..., 0]))
@@ -183,7 +183,7 @@ def train_grid(name, windows, epochs, device=cfg.DEVICE):
 def grid_infer(model, win, device=cfg.DEVICE):
     mobs = win["valid"] * (1.0 - win["art"])
     with torch.no_grad():
-        xt = _pad_seq(np.transpose(win["x"], (0, 3, 1, 2)))
+        xt = _pad_seq(np.transpose(win["x_cue"], (0, 3, 1, 2)))
         x = torch.tensor(xt[None], device=device)
         m = torch.tensor(_pad_seq(mobs)[None], device=device)[:, :, None]
         pred = model(x, m)[0, :, 0].cpu().numpy()
@@ -198,7 +198,7 @@ def _frame_samples(windows):
     X, M, TV, ART = [], [], [], []
     for win in windows:
         mobs = win["valid"] * (1.0 - win["art"])
-        xt = _pad_seq(np.transpose(win["x"], (0, 3, 1, 2)))
+        xt = _pad_seq(np.transpose(win["x_cue"], (0, 3, 1, 2)))
         mt = _pad_seq(mobs)
         tt = _pad_seq(win["clean"][..., 0])
         at = _pad_seq(win["art"])
@@ -293,7 +293,7 @@ def train_frame_grid(name, windows, epochs, device=cfg.DEVICE):
 def frame_grid_infer(model, win, device=cfg.DEVICE):
     mobs = win["valid"] * (1.0 - win["art"])
     with torch.no_grad():
-        xt = _pad_seq(np.transpose(win["x"], (0, 3, 1, 2)))
+        xt = _pad_seq(np.transpose(win["x_cue"], (0, 3, 1, 2)))
         mt = _pad_seq(mobs)
         x = torch.tensor(xt, device=device)
         m = torch.tensor(mt[:, None], device=device)

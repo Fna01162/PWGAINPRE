@@ -20,6 +20,7 @@ from untils.losses import masked_prediction_loss, reconstruction_loss, generator
 from untils.data import generate_pure_structural_missing_mask, _continuous_ray_mask, _calibrate_missing
 from untils.refiner import ResidualRefiner, apply_refiner
 from test_joint import evaluate_on_test, azimuth_linear_interpolation
+from train import make_training_cue, build_contextual_fusion
 
 
 def set_seed(seed=42):
@@ -37,8 +38,58 @@ def set_seed(seed=42):
         torch.backends.cudnn.benchmark = False
 
 
-def save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=False, is_last=False):
-    """保存模型检查点"""
+def load_refiner_from_checkpoint(ckpt_path, cfg, device):
+    """从外部 checkpoint 加载与当前配置通道匹配的 Refiner（供 C 链路复用 D 链路的 R）。
+
+    Returns:
+        (R, refiner_phys_channels, refiner_n_wavelet_levels)；
+        路径不存在 / 无 refiner 键 / 通道不匹配时返回 (None, cfg 值, cfg 值)。
+    """
+    phys = int(cfg.phys_channels)
+    wl = int(getattr(cfg, 'n_wavelet_levels', 1))
+
+    if not ckpt_path or not os.path.exists(ckpt_path):
+        return None, phys, wl
+    try:
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+    except Exception as e:
+        print(f"⚠️  Failed to load Refiner source {ckpt_path}: {e}")
+        return None, phys, wl
+
+    ref_state = ck.get('refiner', None)
+    if ref_state is None:
+        print(f"ℹ️  No refiner in {ckpt_path}, Refiner skipped")
+        return None, phys, wl
+
+    enc1 = ref_state.get('enc1.0.conv.weight', None)
+    if enc1 is None:
+        print(f"⚠️  Cannot infer in_channels from {ckpt_path}, Refiner skipped")
+        return None, phys, wl
+
+    from untils.wavelet import wavelet_feature_channels as _wfc
+    in_ch = int(enc1.shape[1])
+    expected = cfg.phys_channels + 5 + _wfc(wl)
+    if in_ch != expected:
+        print(f"⚠️  Refiner from {ckpt_path}: in_channels={in_ch} != expected {expected}, Refiner skipped")
+        return None, phys, wl
+
+    base_filter = int(enc1.shape[0])
+    R = ResidualRefiner(in_channels=in_ch, base_filter=base_filter).to(device)
+    R.load_state_dict(ref_state)
+    R.eval()
+    print(f"✅ Refiner loaded from {ckpt_path}: in_channels={in_ch}, base_filter={base_filter}")
+    return R, phys, wl
+
+
+def save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=False, is_last=False, save_epoch_ckpt=False):
+    """保存模型检查点。
+
+    [P0-4 FIX] 保存粒度由调用方控制：
+      - is_best=True  → joint_best.pth
+      - is_last=True  → joint_last.pth
+      - save_epoch_ckpt=True → joint_epoch_{epoch+1:03d}.pth（仅每 save_every_n_epochs 保存）
+    不再每 epoch 无条件写全量 checkpoint。
+    """
     state = {
         'epoch': epoch,
         'model': G.state_dict(),
@@ -63,9 +114,11 @@ def save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=False, is_last=False):
         last_path = os.path.join(cfg.output_dir, 'joint_last.pth')
         torch.save(state, last_path)
 
-    # 定期保存checkpoint
-    checkpoint_path = os.path.join(cfg.output_dir, f'joint_epoch_{epoch+1:03d}.pth')
-    torch.save(state, checkpoint_path)
+    # 定期保存checkpoint：仅当调用方显式要求时才保存
+    if save_epoch_ckpt:
+        checkpoint_path = os.path.join(cfg.output_dir, f'joint_epoch_{epoch+1:03d}.pth')
+        torch.save(state, checkpoint_path)
+        print(f"💾 Saved periodic checkpoint to {checkpoint_path}")
 
 
 def plot_training_curves(history_path, output_dir):
@@ -245,18 +298,29 @@ def train_joint(chain_mode=None):
                     R.load_state_dict(refiner_ckpt)
                     print(f"✅ Refiner loaded: {len(refiner_ckpt)} tensors, in_channels={in_ch_from_ckpt}")
                 else:
-                    # ❌ 不匹配：询问用户选择（这里默认使用新配置）
+                    # ❌ 不匹配
                     print(f"\n⚠️  Configuration mismatch detected!")
                     print(f"     Checkpoint:  in_channels={in_ch_from_ckpt} (trained with different config)")
                     print(f"     Current:     in_channels={expected_in_ch} (based on your config)")
-                    print(f"\n🔧 Decision: Creating NEW Refiner with current config (ignoring checkpoint weights)")
-                    print(f"   → This means the Refiner will be randomly initialized and trained from scratch")
-                    print(f"   → You may need more epochs for convergence\n")
 
-                    R = ResidualRefiner(in_channels=expected_in_ch,
-                                       base_filter=getattr(cfg, 'refiner_base_filter', 16)).to(device)
-                    print(f"✅ New Refiner created: in_channels={expected_in_ch} (randomly initialized)")
-                    print(f"   Wavelet levels: {refiner_n_wavelet_levels}, Phys channels: {cfg.phys_channels}")
+                    if freeze_G:
+                        # [P0-2 FIX] C链路：不使用随机初始化的冻结 Refiner。
+                        # 随机 R 被冻结会向 GAIN 输出叠加随机扰动，污染 C 链路补全结果；
+                        # 直接降级为 R=None，C 链路使用 GAIN 原始补全输出。
+                        print(f"\n🔒 Chain C: falling back to R=None (no Refiner)")
+                        print(f"   → 随机 Refiner 被冻结会向 GAIN 输出叠加随机扰动，")
+                        print(f"     C 链路将直接使用 GAIN 原始补全输出\n")
+                        R = None
+                    else:
+                        # D链路：保持随机初始化并从头训练（参与联合优化）
+                        print(f"\n🔧 Decision: Creating NEW Refiner with current config (ignoring checkpoint weights)")
+                        print(f"   → This means the Refiner will be randomly initialized and trained from scratch")
+                        print(f"   → You may need more epochs for convergence\n")
+
+                        R = ResidualRefiner(in_channels=expected_in_ch,
+                                           base_filter=getattr(cfg, 'refiner_base_filter', 16)).to(device)
+                        print(f"✅ New Refiner created: in_channels={expected_in_ch} (randomly initialized)")
+                        print(f"   Wavelet levels: {refiner_n_wavelet_levels}, Phys channels: {cfg.phys_channels}")
 
                     # 保持配置值不变
                     refiner_phys_channels = cfg.phys_channels
@@ -268,23 +332,37 @@ def train_joint(chain_mode=None):
             print("ℹ️  No refiner weights in checkpoint")
             R = None
 
-        # 如果还没有创建 R（没有 checkpoint 或无法推断），用配置计算
+        # 如果还没有创建 R（没有 checkpoint 或无法推断）：
+        #   C链路：优先复用 D 链路（联合训练）训好的 Refiner，通道匹配才加载；
+        #          加载不到则跳过 Refiner（绝不用随机初始化的冻结 Refiner 污染补全结果）
+        #   D链路：按配置新建随机 Refiner，参与联合训练
         if R is None:
-            phys_ch = cfg.phys_channels
-            geom_ch = 3  # Range, sinθ, cosθ
-            mask_ch = 2  # given_mask, rel_mask
-            base_ch = phys_ch + geom_ch + mask_ch
-            if getattr(cfg, 'use_wavelet', True):
-                from untils.wavelet import wavelet_feature_channels as _wfc2
-                wl = _wfc2(int(getattr(cfg, 'n_wavelet_levels', 1)))
+            if freeze_G:
+                # 自动定位同任务 D 链路的 joint_best.pth（output_dir 以 "_C" 结尾）
+                d_ckpt_path = os.path.join(cfg.output_dir[:-2] + '_D', 'joint_best.pth') \
+                    if cfg.output_dir.endswith('_C') else None
+                user_src = getattr(cfg, 'refiner_pretrain_path', '')
+                src = user_src if user_src else d_ckpt_path
+                R, refiner_phys_channels, refiner_n_wavelet_levels = \
+                    load_refiner_from_checkpoint(src, cfg, device)
+                if R is None:
+                    print("ℹ️  Chain C: Refiner skipped (no compatible checkpoint) — using raw GAIN output")
             else:
-                wl = 0
-            in_ch = base_ch + wl
-            R = ResidualRefiner(in_channels=in_ch, base_filter=getattr(cfg, 'refiner_base_filter', 16)).to(device)
-            print(f"✅ ResidualRefiner created from config: in_channels={in_ch}")
-            # 使用config创建，无需覆盖
-            refiner_phys_channels = cfg.phys_channels
-            refiner_n_wavelet_levels = int(getattr(cfg, 'n_wavelet_levels', 1))
+                phys_ch = cfg.phys_channels
+                geom_ch = 3  # Range, sinθ, cosθ
+                mask_ch = 2  # given_mask, rel_mask
+                base_ch = phys_ch + geom_ch + mask_ch
+                if getattr(cfg, 'use_wavelet', True):
+                    from untils.wavelet import wavelet_feature_channels as _wfc2
+                    wl = _wfc2(int(getattr(cfg, 'n_wavelet_levels', 1)))
+                else:
+                    wl = 0
+                in_ch = base_ch + wl
+                R = ResidualRefiner(in_channels=in_ch, base_filter=getattr(cfg, 'refiner_base_filter', 16)).to(device)
+                print(f"✅ ResidualRefiner created from config: in_channels={in_ch}")
+                # 使用config创建，无需覆盖
+                refiner_phys_channels = cfg.phys_channels
+                refiner_n_wavelet_levels = int(getattr(cfg, 'n_wavelet_levels', 1))
 
     # A3: C链路冻结G和R的参数
     if freeze_G:
@@ -315,6 +393,15 @@ def train_joint(chain_mode=None):
         optim_D = None  # A/B/C链路不需要D优化器
 
     optim_P = torch.optim.Adam(P.parameters(), lr=cfg.lr, betas=cfg.betas)
+
+    # 学习率衰减：只对 G（含 R）和 P，D 不衰减（避免对抗失衡）
+    def _make_scheduler(optim):
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optim, mode="min", factor=cfg.lr_factor,
+            patience=cfg.lr_patience, min_lr=cfg.lr_min)
+
+    sch_G = _make_scheduler(optim_G) if optim_G is not None else None
+    sch_P = _make_scheduler(optim_P)
 
     # 5. 初始化训练日志
     history_path = os.path.join(cfg.output_dir, 'training_history.csv')
@@ -348,28 +435,41 @@ def train_joint(chain_mode=None):
 
             B, C, Tin, H, W = hx.shape
 
-            # ==================== A4: 改用真扇区mask + 精确校准 ====================
+            # ==================== [口径对齐 train.py] 结构楔 mask + 只遮 target 帧 + cue 填充 ====================
             valid_mask_h = (hm * hr)  # [B, C, Tin, H, W]
+            target_t = Tin - 1
 
-            # 使用连续射线掩码（真20%方位扇区）+ 校准到目标缺失率
-            art_mask_list = []
-            for b in range(B):
-                allowed = valid_mask_h[b, 0, 0].cpu().numpy()  # 取第一个时间步、第一个通道的掩码
-                # 生成连续射线扇区（约25条射线对应20%方位，W=125时）
-                n_rays = max(1, int(cfg.missing_rate * W))  # 0.15*125 ≈ 19条射线
-                raw_mask = _continuous_ray_mask(H, W, n_rays)
-                # 校准到精确的目标缺失率
-                calibrated_mask = _calibrate_missing(raw_mask, cfg.missing_rate, allowed > 0.5)
-                art_mask_list.append(calibrated_mask)
+            # 结构楔（train.py generate_pure_structural_missing_mask 同源），只作用于 target 帧
+            vrel_t = hr[:, 0:1, target_t]
+            vval_t = valid_mask_h[:, 0:1, target_t]
+            ve_t = vrel_t * vval_t
+            art_target, _rates = generate_pure_structural_missing_mask(
+                B, H, W, device, cfg.drop_prob, cfg=cfg, valid_mask=ve_t)
+            art_target = art_target * ve_t  # [B,1,H,W] target 帧遮挡
 
-            art_mask_np = np.stack(art_mask_list)  # [B, H, W]
-            art_mask = torch.from_numpy(art_mask_np).unsqueeze(1).float().to(device)  # [B, 1, H, W]
-            art_mask = art_mask.unsqueeze(1).expand(-1, C, Tin, -1, -1)  # [B, C, Tin, H, W]
+            art_mask = torch.zeros(B, C, Tin, H, W, device=device)
+            art_mask[:, :, target_t:target_t + 1] = art_target.unsqueeze(1)
 
-            m_t = valid_mask_h * (1 - art_mask)  # 有效且非人工缺失的区域
-
-            # 强制归零缺失区域
-            xin = hx * m_t
+            # 只对 target 帧打人工缺失 + cue 填充（train.py build_contextual_fusion 口径）
+            m_t = valid_mask_h * (1 - art_mask)
+            given_all = hm * (1 - art_mask)
+            xin = hx.clone()
+            xin[:, :, target_t:target_t + 1] = (
+                hx[:, :, target_t:target_t + 1]
+                * given_all[:, :, target_t:target_t + 1])
+            min_ = hm.clone()
+            min_[:, :, target_t:target_t + 1] = (
+                given_all[:, :, target_t:target_t + 1])
+            if train_G:
+                z = torch.randn_like(xin)
+                noise_scale = cfg.noise_scale
+            else:
+                z = torch.zeros_like(xin)
+                noise_scale = 0.0
+            cue, em = make_training_cue(xin, min_, hr, hm, target_t)
+            if not getattr(cfg, "use_cue", True):
+                cue = torch.zeros(B, 1, H, W, device=device, dtype=hx.dtype)
+            xb = build_contextual_fusion(xin, em, cue, z, noise_scale)
 
             # ==================== 补全阶段 ====================
             if chain_mode == "A":
@@ -380,14 +480,11 @@ def train_joint(chain_mode=None):
                 missing_mask_b = (m_t[:, 0:1, :, :, :] < 0.5)  # [B, 1, Tin, H, W]
                 v_completed = azimuth_linear_interpolation(xin[:, 0:1, :, :, :], missing_mask_b)
             else:
-                # C/D链路：使用GAIN补全
-                xb, eb = build_generator_inputs(xin, m_t)
-                gx, gm = xb.to(device), m_t.to(device)
+                # C/D链路：使用GAIN补全（整帧前向，与预训练 time_steps=10 一致）
+                with torch.set_grad_enabled(train_G):
+                    v_completed = G(xb, em)  # [B, 1, Tin, H, W]
 
-                with torch.set_grad_enabled(train_G):  # A3: 只有D链路才计算G的梯度
-                    v_completed = G(gx, gm)  # [B, 1, Tin, H, W]
-
-                    # [FIX] GAIN补全后，应用Refiner做残差修正（逐帧）
+                    # [口径对齐] Refiner 只 refine target 帧（其余帧无人工缺失）
                     if R is not None:
                         # [向下兼容] 准备 Refiner 专用的 cfg（可能需要降维/调整小波层数）
                         needs_override = (refiner_phys_channels != cfg.phys_channels or
@@ -399,24 +496,22 @@ def train_joint(chain_mode=None):
                         else:
                             refiner_cfg = cfg
 
-                        v_refined_list = []
-                        for t in range(Tin):
-                            v_t = v_completed[:, :, t, :, :]  # [B, 1, H, W]
-                            x_t = hx[:, :, t:t+1, :, :]  # [FIX] 5D保持时间维，build_refiner_input需要
+                        v_t = v_completed[:, :, target_t, :, :]  # [B, 1, H, W]
+                        x_t = hx[:, :, target_t:target_t + 1, :, :]  # 5D 保持时间维
+                        if x_t.shape[1] > refiner_phys_channels:
+                            x_t = x_t[:, :refiner_phys_channels, :, :]
+                        given_t = hm[:, :, target_t, :, :]  # [B, 1, H, W]
+                        rel_t = hr[:, :, target_t, :, :]  # [B, 1, H, W]
+                        valid_t = valid_mask_h[:, :, target_t, :, :]  # [B, 1, H, W]
 
-                            # 切片到 Refiner 能处理的通道数
-                            if x_t.shape[1] > refiner_phys_channels:
-                                x_t = x_t[:, :refiner_phys_channels, :, :]
-                            given_t = hm[:, :, t, :, :]  # [B, 1, H, W]
-                            rel_t = hr[:, :, t, :, :]  # [B, 1, H, W]
-                            valid_t = valid_mask_h[:, :, t, :, :]  # [B, 1, H, W]
-
-                            with torch.set_grad_enabled(train_G):
-                                # 使用 refiner_cfg（phys_channels 已调整）
-                                v_refined_t = apply_refiner(R, v_t, x_t, given_t, rel_t, valid_t, refiner_cfg, device)
-                            v_refined_list.append(v_refined_t)
-
-                        v_completed = torch.stack(v_refined_list, dim=2)  # [B, 1, Tin, H, W]
+                        with torch.set_grad_enabled(train_G):
+                            v_refined_t = apply_refiner(
+                                R, v_t, x_t, given_t, rel_t, valid_t,
+                                refiner_cfg, device)
+                        v_completed = torch.cat([
+                            v_completed[:, :, :target_t],
+                            v_refined_t.unsqueeze(2),
+                            v_completed[:, :, target_t + 1:]], dim=2)
 
             # ==================== [P0-1+P0-2 FIX] 完整的联合训练（仅D链路）====================
             # 核心改进：
@@ -582,41 +677,58 @@ def train_joint(chain_mode=None):
         })
         csv_file.flush()
 
-        # 定期在验证集上评估（用于early stopping和选最佳模型）
-        if val_loader is not None and (epoch + 1) % cfg.eval_val_epochs == 0:
+        # 选最佳 / 衰减 / 早停都在"验证后"统一进行，计数单位是"验证次数"，
+        # 这样衰减（lr_patience）一定早于早停（early_stopping_patience），
+        # 给降低后的学习率留出改善窗口，而不是还没衰减就被早停。
+        is_best = False
+        stop_now = False
+        do_val = val_loader is not None and \
+            (epoch + 1) % cfg.eval_val_epochs == 0
+
+        if do_val:
             _, val_mae = evaluate_on_test(
                 G, P, R, refiner_phys_channels, refiner_n_wavelet_levels,
                 val_loader, norm, cfg, device, chain_mode=chain_mode
             )
             print(f"  Val P_MAE: {val_mae:.6f} (Best: {best_val_mae:.6f})")
-
-        # 基于验证集选最佳模型（仅在验证已执行过后更新计数器）
-        # 如果没有验证集，回退到使用训练集P_MAE
-        if val_mae != float('inf'):
             is_best = val_mae < best_val_mae
-        else:
+            if is_best:
+                best_val_mae = val_mae
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            # 学习率衰减（按验证次数，内部计数）
+            if sch_G is not None:
+                sch_G.step(val_mae)
+            sch_P.step(val_mae)
+            if patience_counter >= cfg.early_stopping_patience:
+                stop_now = True
+        elif val_loader is None:
+            # 无验证集：回退到训练 P_MAE
             is_best = avg_pred_loss < best_val_mae
-
-        if is_best:
-            best_val_mae = val_mae if val_mae != float('inf') else avg_pred_loss
-            patience_counter = 0
-        else:
-            patience_counter += 1
+            if is_best:
+                best_val_mae = avg_pred_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            if patience_counter >= cfg.early_stopping_patience:
+                stop_now = True
 
         is_last = (epoch == cfg.epochs - 1)
-        save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=is_best, is_last=is_last)
-
-        # 定期保存checkpoint
-        if (epoch + 1) % cfg.save_every_n_epochs == 0 and not is_best and not is_last:
-            save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=False, is_last=False)
+        # [P0-4 FIX] 保存粒度三档：best / last / 每 save_every_n_epochs 的周期 checkpoint，
+        # 其余 epoch 不再写任何全量文件
+        is_periodic = ((epoch + 1) % cfg.save_every_n_epochs == 0)
+        save_checkpoint(epoch, G, D, P, R, norm, cfg, is_best=is_best, is_last=is_last,
+                        save_epoch_ckpt=is_periodic and not is_best and not is_last)
 
         print(f"Epoch {epoch+1}/{cfg.epochs} [{chain_mode}] - Train P_MAE: {avg_pred_loss:.6f} | Val P_MAE: {val_mae:.6f} (Best: {best_val_mae:.6f})")
         if use_gan and train_G:
             print(f"  Recon Loss: {avg_recon_loss:.6f}, Adv Loss: {avg_adv_loss:.6f}")
 
         # 早停检查
-        if patience_counter >= cfg.early_stopping_patience:
-            print(f"\n⏹️  Early stopping triggered after {epoch+1} epochs (patience: {cfg.early_stopping_patience})")
+        if stop_now:
+            print(f"\n⏹️  Early stopping triggered after {epoch+1} epochs "
+                  f"(patience: {cfg.early_stopping_patience} 次验证)")
             break
 
     # 7. 关闭日志文件
@@ -639,7 +751,11 @@ def train_joint(chain_mode=None):
 
 def main():
     # 命令行仅负责选择链路模式，具体行为与输出目录统一由 Config 决定
-    chain_mode = sys.argv[1] if len(sys.argv) > 1 else None
+    # 只取合法的链路模式参数，兼容 `python train_joint.py D` 与 `python main.py joint D`
+    chain_mode = None
+    for arg in sys.argv[1:]:
+        if arg.upper() in Config.CHAIN_MODES:
+            chain_mode = arg.upper()
     train_joint(chain_mode=chain_mode)
 
 

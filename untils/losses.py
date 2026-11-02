@@ -41,36 +41,30 @@ def generator_adv_loss(d_logits, missing_mask, valid_mask):
 
 
 def reconstruction_loss(v_fake, v_true, artificial_mask, reliable_mask):
-    """V 人工缺失区域的监督重建损失。"""
+    """V 人工缺失区域的监督重建损失。
+
+    4D 单帧（[B,1,H,W]）：监督该帧；5D 多帧（[B,1,T,H,W]）：保留全部时间帧，
+    逐帧统计 masked MSE 后整体归一化（不能只取第 0 帧，否则 G 只学 frame 0）。
+    """
     mask = artificial_mask * reliable_mask
-    if mask.dim() == 5:
-        mask = mask[:, :, 0]
-    if v_fake.dim() == 5:
-        v_fake = v_fake[:, :, 0]
-    if v_true.dim() == 5:
-        v_true = v_true[:, :, 0]
     diff = (v_fake - v_true) ** 2
     return (diff * mask).sum() / (mask.sum() + 1e-8)
 
 
 def tv_loss(v_fake, missing_mask, valid_mask=None):
-    """空间 TV 平滑约束，只作用于缺失区域。"""
-    if v_fake.dim() == 5:
-        v_fake = v_fake[:, :, 0]
-    if missing_mask.dim() == 5:
-        missing_mask = missing_mask[:, :, 0]
-    if valid_mask is not None and valid_mask.dim() == 5:
-        valid_mask = valid_mask[:, :, 0]
+    """空间 TV 平滑约束，只作用于缺失区域。
 
+    空间维（H,W）是最后两维；5D 时用 ellipsis 覆盖全部时间帧，不能只取 frame 0。
+    """
     m = missing_mask
     if valid_mask is not None:
         m = m * valid_mask
 
-    dx = torch.abs(v_fake[:, :, 1:, :] - v_fake[:, :, :-1, :])
-    dy = torch.abs(v_fake[:, :, :, 1:] - v_fake[:, :, :, :-1])
+    dx = torch.abs(v_fake[..., 1:, :] - v_fake[..., :-1, :])
+    dy = torch.abs(v_fake[..., :, 1:] - v_fake[..., :, :-1])
 
-    mx = m[:, :, 1:, :]
-    my = m[:, :, :, 1:]
+    mx = m[..., 1:, :]
+    my = m[..., :, 1:]
 
     numerator = (dx * mx).sum() + (dy * my).sum()
     denominator = mx.sum() + my.sum() + 1e-8
