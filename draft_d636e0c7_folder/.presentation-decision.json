@@ -1,1 +1,0 @@
-{"audience":"论文作者（付彦娜）","reader_task":"确定论文实验部分用哪些图表、每类怎么画、参考哪篇文献","genre_contract":null,"adapter":null,"presentation_mode":"rich","visual_plan":{"reason":"用HTML block展示实验图表总体布局映射与端到端/分离训练范式对比，表格承载各图表类型的文献明细与落地建议","blocks":[{"type":"html5-block","min_count":2,"purpose":"实验章节到图表类型到文献的映射图；分离vs联合训练范式对比图"}]}}
